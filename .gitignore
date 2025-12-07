@@ -1,0 +1,13 @@
+# 常见忽略文件
+*.log
+*.tmp
+*.swp
+*~
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+.augment/
