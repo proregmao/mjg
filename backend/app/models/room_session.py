@@ -17,6 +17,7 @@ class RoomSession(Base):
     end_time = Column(DateTime(timezone=True), comment="结束时间")
     status = Column(String(20), default="in_progress", index=True, comment="状态：in_progress=进行中, settled=已结算")
     table_fee = Column(Numeric(10, 2), default=0, comment="台子费")
+    table_fee_payment_method = Column(String(20), default="现金", comment="台子费支付方式：现金、微信、支付宝、转账")
     total_revenue = Column(Numeric(10, 2), default=0, comment="总收入")
     total_cost = Column(Numeric(10, 2), default=0, comment="总成本")
     total_profit = Column(Numeric(10, 2), default=0, comment="总利润")

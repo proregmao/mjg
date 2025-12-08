@@ -57,6 +57,8 @@ class MonthlyStatisticsResponse(BaseModel):
     total_revenue: Decimal = Field(..., description="总收入")
     total_cost: Decimal = Field(..., description="总成本")
     total_profit: Decimal = Field(..., description="总利润")
+    other_income: Decimal = Field(default=0, description="其它收入")
+    other_expense: Decimal = Field(default=0, description="其它支出")
     table_fee_total: Decimal = Field(..., description="台子费总额")
     product_revenue: Decimal = Field(..., description="商品收入")
     product_cost: Decimal = Field(..., description="商品成本")

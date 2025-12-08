@@ -17,6 +17,8 @@ from app.models.product_consumption import ProductConsumption
 from app.models.meal_record import MealRecord
 from app.models.room import Room
 from app.models.product import Product
+from app.models.other_expense import OtherExpense
+from app.models.other_income import OtherIncome
 from app.schemas.statistics import (
     DailyStatisticsResponse, MonthlyStatisticsResponse,
     CustomerRankingItem, RoomUsageItem, ProductSalesItem,
@@ -95,7 +97,26 @@ def get_daily_statistics(
             meal_revenue += meal.amount or Decimal("0")
             meal_cost += meal.cost_price or Decimal("0")
     
-    total_profit = table_fee_total - product_cost - meal_cost
+    # 查询当天的其它支出和收入
+    other_expenses = db.query(OtherExpense).filter(
+        and_(
+            OtherExpense.expense_date >= start_datetime,
+            OtherExpense.expense_date <= end_datetime
+        )
+    ).all()
+    
+    other_incomes = db.query(OtherIncome).filter(
+        and_(
+            OtherIncome.income_date >= start_datetime,
+            OtherIncome.income_date <= end_datetime
+        )
+    ).all()
+    
+    other_expense_total = sum(exp.amount for exp in other_expenses)
+    other_income_total = sum(inc.amount for inc in other_incomes)
+    
+    # 利润 = 房间收入 - 房间成本 + 其它收入 - 其它支出
+    total_profit = table_fee_total - product_cost - meal_cost + other_income_total - other_expense_total
     
     # 构建房间详情列表
     room_details = [
@@ -185,6 +206,8 @@ def get_daily_statistics(
         total_revenue=total_revenue,
         total_cost=total_cost,
         total_profit=total_profit,
+        other_income=other_income_total,
+        other_expense=other_expense_total,
         table_fee_total=table_fee_total,
         product_revenue=product_revenue,
         product_cost=product_cost,
@@ -283,17 +306,56 @@ def get_monthly_statistics(
             meal_revenue += meal.amount or Decimal("0")
             meal_cost += meal.cost_price or Decimal("0")
     
-    total_profit = table_fee_total - product_cost - meal_cost
+    # 查询当月的其它支出和收入
+    other_expenses = db.query(OtherExpense).filter(
+        and_(
+            OtherExpense.expense_date >= start_datetime,
+            OtherExpense.expense_date <= end_datetime
+        )
+    ).all()
+    
+    other_incomes = db.query(OtherIncome).filter(
+        and_(
+            OtherIncome.income_date >= start_datetime,
+            OtherIncome.income_date <= end_datetime
+        )
+    ).all()
+    
+    other_expense_total = sum(exp.amount for exp in other_expenses)
+    other_income_total = sum(inc.amount for inc in other_incomes)
+    
+    # 按日期分组统计其它支出和收入
+    daily_other_expense_dict = {}
+    daily_other_income_dict = {}
+    
+    for exp in other_expenses:
+        exp_date = exp.expense_date.date()
+        if exp_date not in daily_other_expense_dict:
+            daily_other_expense_dict[exp_date] = Decimal("0")
+        daily_other_expense_dict[exp_date] += exp.amount
+    
+    for inc in other_incomes:
+        inc_date = inc.income_date.date()
+        if inc_date not in daily_other_income_dict:
+            daily_other_income_dict[inc_date] = Decimal("0")
+        daily_other_income_dict[inc_date] += inc.amount
+    
+    # 利润 = 房间收入 - 房间成本 + 其它收入 - 其它支出
+    total_profit = table_fee_total - product_cost - meal_cost + other_income_total - other_expense_total
     
     # 构建每日统计列表
     daily_statistics = []
     for stat_date, stats in sorted(daily_stats_dict.items()):
-        daily_profit = stats["table_fee"] - stats["product_cost"] - stats["meal_cost"]
+        daily_other_income = daily_other_income_dict.get(stat_date, Decimal("0"))
+        daily_other_expense = daily_other_expense_dict.get(stat_date, Decimal("0"))
+        daily_profit = stats["table_fee"] - stats["product_cost"] - stats["meal_cost"] + daily_other_income - daily_other_expense
         daily_statistics.append(DailyStatisticsResponse(
             date=stat_date,
             total_revenue=stats["revenue"],
             total_cost=stats["cost"],
             total_profit=daily_profit,
+            other_income=daily_other_income,
+            other_expense=daily_other_expense,
             table_fee_total=stats["table_fee"],
             product_revenue=stats["product_revenue"],
             product_cost=stats["product_cost"],
@@ -309,6 +371,8 @@ def get_monthly_statistics(
         total_revenue=total_revenue,
         total_cost=total_cost,
         total_profit=total_profit,
+        other_income=other_income_total,
+        other_expense=other_expense_total,
         table_fee_total=table_fee_total,
         product_revenue=product_revenue,
         product_cost=product_cost,

@@ -90,13 +90,15 @@ class RecordLoanRequest(BaseModel):
     """记录借款请求"""
     customer_id: int = Field(..., description="客户ID")
     amount: Decimal = Field(..., gt=0, description="借款金额")
+    payment_method: Optional[str] = Field("现金", description="支付方式：现金、微信、支付宝、转账，默认为现金")
 
 
 class RecordRepaymentRequest(BaseModel):
     """记录还款请求"""
     loan_id: Optional[int] = Field(None, description="借款记录ID（可选，如果有则还此笔借款，否则直接冲抵总欠款）")
     customer_id: int = Field(..., description="客户ID")
-    amount: Decimal = Field(..., gt=0, description="还款金额（可超过借款金额，超出部分冲抵总欠款）")
+    amount: Decimal = Field(..., ne=0, description="还款金额（正数为还款，负数为退款/支付，可超过借款金额，超出部分冲抵总欠款）")
+    payment_method: Optional[str] = Field("现金", description="还款方式：现金、微信、支付宝、转账，默认为现金")
 
 
 class RecordProductRequest(BaseModel):
@@ -104,6 +106,7 @@ class RecordProductRequest(BaseModel):
     product_id: int = Field(..., description="商品ID")
     customer_id: Optional[int] = Field(None, description="客户ID（可选）")
     quantity: int = Field(..., gt=0, description="数量")
+    payment_method: Optional[str] = Field("现金", description="支付方式：现金、微信、支付宝、转账，默认为现金")
 
 
 class RecordMealRequest(BaseModel):
@@ -111,6 +114,7 @@ class RecordMealRequest(BaseModel):
     product_id: int = Field(..., description="餐费商品ID")
     customer_id: Optional[int] = Field(None, description="客户ID（可选）")
     amount: Decimal = Field(..., gt=0, description="餐费金额")
+    payment_method: Optional[str] = Field("现金", description="支付方式：现金、微信、支付宝、转账，默认为现金")
     description: Optional[str] = Field(None, description="餐费说明")
 
 
@@ -122,6 +126,7 @@ class TransferRoomRequest(BaseModel):
 class SetTableFeeRequest(BaseModel):
     """设置台子费请求"""
     table_fee: Decimal = Field(..., ge=0, description="台子费")
+    payment_method: Optional[str] = Field("现金", description="支付方式：现金、微信、支付宝、转账，默认为现金")
 
 
 

@@ -185,6 +185,7 @@ def record_loan(
         loan_type="from_shop",
         status="active",
         remaining_amount=request.amount,
+        payment_method=request.payment_method or "现金",  # 默认现金
         session_id=session_id
     )
     db.add(loan)
@@ -219,7 +220,40 @@ def record_repayment(
         raise HTTPException(status_code=404, detail="客户不存在")
     
     repay_amount = Decimal(str(request.amount))
+    is_refund = repay_amount < 0  # 负数表示退款/支付给客户
+    abs_amount = abs(repay_amount)
     
+    # 如果是退款（负数），直接更新balance，不处理借款记录
+    if is_refund:
+        # 负数：退款/支付给客户（减少balance，可能增加欠款或减少预存）
+        customer.balance = customer.balance + repay_amount  # repay_amount是负数，所以是减少
+        
+        # 如果余额为正，更新deposit
+        if customer.balance > 0:
+            customer.deposit = customer.balance
+        else:
+            customer.deposit = Decimal('0')
+        
+        # 创建还款记录（负数）
+        repayment = CustomerRepayment(
+            customer_id=request.customer_id,
+            loan_id=None,  # 退款不关联借款记录
+            amount=repay_amount,  # 负数
+            payment_method=request.payment_method or "现金",  # 默认现金
+            session_id=session_id
+        )
+        db.add(repayment)
+        db.commit()
+        
+        return {
+            "message": f"退款成功，已向客户支付 ¥{abs_amount:.2f}",
+            "repayment_id": repayment.id,
+            "loan_repay": 0.0,
+            "extra_repay": float(repay_amount),
+            "customer_balance": float(customer.balance)
+        }
+    
+    # 正数：正常还款逻辑
     # 如果有借款记录，处理借款还款
     if request.loan_id:
         # 获取借款记录
@@ -247,6 +281,7 @@ def record_repayment(
             customer_id=request.customer_id,
             loan_id=loan.id,
             amount=repay_amount,  # 记录实际还款总额
+            payment_method=request.payment_method or "现金",  # 默认现金
             session_id=session_id
         )
         db.add(repayment)
@@ -302,6 +337,7 @@ def record_repayment(
                 customer_id=request.customer_id,
                 loan_id=active_loan.id,
                 amount=repay_amount,  # 记录实际还款总额
+                payment_method=request.payment_method or "现金",  # 默认现金
                 session_id=session_id
             )
             db.add(repayment)
@@ -335,6 +371,7 @@ def record_repayment(
                 customer_id=request.customer_id,
                 loan_id=None,  # 不关联借款记录
                 amount=repay_amount,
+                payment_method=request.payment_method or "现金",  # 默认现金
                 session_id=session_id
             )
             db.add(repayment)
@@ -393,7 +430,8 @@ def record_product(
         unit_price=product.price,
         total_price=total_price,
         cost_price=product.cost_price,
-        total_cost=total_cost
+        total_cost=total_cost,
+        payment_method=request.payment_method or "现金"  # 默认现金
     )
     db.add(consumption)
     
@@ -437,6 +475,7 @@ def record_meal(
         product_id=request.product_id,
         amount=request.amount,
         cost_price=product.cost_price,
+        payment_method=request.payment_method or "现金",  # 默认现金
         description=request.description
     )
     db.add(meal_record)
@@ -508,6 +547,7 @@ def set_table_fee(
         raise HTTPException(status_code=400, detail="房间使用已结束，无法设置台子费")
     
     session.table_fee = request.table_fee
+    session.table_fee_payment_method = request.payment_method or "现金"  # 默认现金
     session.total_revenue = session.total_revenue + request.table_fee
     
     db.commit()

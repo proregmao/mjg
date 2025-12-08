@@ -15,6 +15,9 @@ from app.models.room_transfer import RoomTransfer
 from app.models.user import User
 from app.models.supplier import Supplier
 from app.models.purchase import Purchase, PurchaseItem
+from app.models.other_expense import OtherExpense
+from app.models.other_income import OtherIncome
+from app.models.system_config import SystemConfig
 
 __all__ = [
     "Customer",
@@ -32,6 +35,9 @@ __all__ = [
     "Supplier",
     "Purchase",
     "PurchaseItem",
+    "OtherExpense",
+    "OtherIncome",
+    "SystemConfig",
 ]
 
 
