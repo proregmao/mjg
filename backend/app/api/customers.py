@@ -59,6 +59,15 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=CustomerResponse)
 def create_customer(customer: CustomerCreate, db: Session = Depends(get_db)):
     """创建客户"""
+    # 检查客户姓名是否已存在（排除已删除的客户）
+    existing_customer = db.query(Customer).filter(
+        Customer.name == customer.name,
+        or_(Customer.is_deleted == 0, Customer.is_deleted == None)
+    ).first()
+    
+    if existing_customer:
+        raise HTTPException(status_code=400, detail=f"客户姓名 '{customer.name}' 已存在，请使用其他姓名")
+    
     # 处理初期帐单逻辑
     initial_balance = customer.initial_balance or Decimal(0)
     
@@ -93,6 +102,18 @@ def update_customer(
         raise HTTPException(status_code=404, detail="客户不存在")
     
     update_data = customer_update.dict(exclude_unset=True)
+    
+    # 如果更新了客户姓名，检查新姓名是否已存在（排除当前客户和已删除的客户）
+    if "name" in update_data and update_data["name"] != db_customer.name:
+        existing_customer = db.query(Customer).filter(
+            Customer.name == update_data["name"],
+            Customer.id != customer_id,
+            or_(Customer.is_deleted == 0, Customer.is_deleted == None)
+        ).first()
+        
+        if existing_customer:
+            raise HTTPException(status_code=400, detail=f"客户姓名 '{update_data['name']}' 已存在，请使用其他姓名")
+    
     for field, value in update_data.items():
         setattr(db_customer, field, value)
     

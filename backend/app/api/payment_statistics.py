@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
-from typing import Optional
+from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 from app.db.database import get_db
@@ -16,7 +16,9 @@ from app.models.meal_record import MealRecord
 from app.models.other_expense import OtherExpense
 from app.models.other_income import OtherIncome
 from app.models.system_config import SystemConfig
-from pydantic import BaseModel, Field
+from app.models.customer import Customer
+from app.models.room import Room
+from pydantic import BaseModel, Field, ConfigDict
 
 router = APIRouter(prefix="/api/payment-statistics", tags=["支付方式统计"])
 
@@ -154,7 +156,7 @@ def get_payment_statistics(
             transfer_total += amount
             transfer_breakdown["repayments"] += amount
     
-    # 统计房间收入（台子费、商品、餐费）
+    # 统计房间收入（只统计台子费，因为台子费已包含商品消费和餐费）
     sessions_query = db.query(RoomSession).filter(RoomSession.status == "settled")
     if date_filter:
         if start_datetime:
@@ -167,7 +169,7 @@ def get_payment_statistics(
         if date_filter and not date_filter(session.start_time):
             continue
         
-        # 台子费
+        # 台子费（台子费已包含商品消费和餐费，所以只统计台子费）
         table_fee = session.table_fee or Decimal("0")
         method = session.table_fee_payment_method or "现金"
         if method == "现金":
@@ -183,41 +185,7 @@ def get_payment_statistics(
             transfer_total += table_fee
             transfer_breakdown["room_income"] += table_fee
         
-        # 商品消费
-        consumptions = db.query(ProductConsumption).filter(ProductConsumption.session_id == session.id).all()
-        for consumption in consumptions:
-            amount = consumption.total_price or Decimal("0")
-            method = consumption.payment_method or "现金"
-            if method == "现金":
-                cash_total += amount
-                cash_breakdown["room_income"] += amount
-            elif method == "微信":
-                wechat_total += amount
-                wechat_breakdown["room_income"] += amount
-            elif method == "支付宝":
-                alipay_total += amount
-                alipay_breakdown["room_income"] += amount
-            elif method == "转账":
-                transfer_total += amount
-                transfer_breakdown["room_income"] += amount
-        
-        # 餐费
-        meals = db.query(MealRecord).filter(MealRecord.session_id == session.id).all()
-        for meal in meals:
-            amount = meal.amount or Decimal("0")
-            method = meal.payment_method or "现金"
-            if method == "现金":
-                cash_total += amount
-                cash_breakdown["room_income"] += amount
-            elif method == "微信":
-                wechat_total += amount
-                wechat_breakdown["room_income"] += amount
-            elif method == "支付宝":
-                alipay_total += amount
-                alipay_breakdown["room_income"] += amount
-            elif method == "转账":
-                transfer_total += amount
-                transfer_breakdown["room_income"] += amount
+        # 注意：商品消费和餐费不单独统计，因为它们已包含在台子费中
     
     # 统计其它收入
     if date_filter:
@@ -303,4 +271,235 @@ def get_payment_statistics(
         alipay_breakdown=convert_breakdown(alipay_breakdown),
         transfer_breakdown=convert_breakdown(transfer_breakdown)
     )
+
+
+class CashFlowItem(BaseModel):
+    """现金流水项"""
+    model_config = ConfigDict(populate_by_name=True)
+    
+    id: int = Field(..., description="记录ID")
+    type: str = Field(..., description="类型：loan=借款, repayment=还款, room_income=房间收入, other_income=其它收入, other_expense=其它支出")
+    amount: Decimal = Field(..., description="金额（正数表示增加，负数表示减少）")
+    record_datetime: datetime = Field(..., description="时间", alias="datetime")
+    description: str = Field(..., description="描述")
+    customer_name: Optional[str] = Field(None, description="客户名称")
+    room_name: Optional[str] = Field(None, description="房间名称")
+    payment_method: str = Field(..., description="支付方式")
+    cash_balance: Decimal = Field(..., description="现金余额（该笔交易后的余额）")
+
+
+class CashFlowListResponse(BaseModel):
+    """现金流水列表响应模型"""
+    items: List[CashFlowItem] = Field(default_factory=list, description="流水列表")
+    total: int = Field(..., description="总记录数")
+
+
+@router.get("/cash-flow", response_model=CashFlowListResponse)
+def get_cash_flow(
+    start_date: Optional[date] = Query(None, description="开始日期，格式：YYYY-MM-DD"),
+    end_date: Optional[date] = Query(None, description="结束日期，格式：YYYY-MM-DD"),
+    skip: int = Query(0, ge=0, description="跳过记录数"),
+    limit: int = Query(100, ge=1, le=1000, description="返回记录数"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取现金流水明细列表
+    支持按日期范围过滤，返回所有现金相关的记录
+    """
+    # 获取初期现金
+    initial_cash_config = db.query(SystemConfig).filter(SystemConfig.key == "initial_cash").first()
+    initial_cash = Decimal(initial_cash_config.value) if initial_cash_config else Decimal("0")
+    
+    items = []
+    
+    # 构建日期过滤条件
+    start_datetime = None
+    end_datetime = None
+    if start_date:
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+    if end_date:
+        end_datetime = datetime.combine(end_date, datetime.max.time())
+    
+    # 计算起始余额（日期范围之前的所有现金交易）
+    starting_balance = initial_cash
+    if start_datetime:
+        # 计算start_datetime之前的所有现金交易
+        # 借款（减少）
+        loans_before = db.query(CustomerLoan).filter(
+            CustomerLoan.created_at < start_datetime,
+            (CustomerLoan.payment_method == "现金") | (CustomerLoan.payment_method.is_(None))
+        ).all()
+        for loan in loans_before:
+            starting_balance -= loan.amount
+        
+        # 还款（增加）
+        repayments_before = db.query(CustomerRepayment).filter(
+            CustomerRepayment.created_at < start_datetime,
+            (CustomerRepayment.payment_method == "现金") | (CustomerRepayment.payment_method.is_(None))
+        ).all()
+        for repayment in repayments_before:
+            starting_balance += repayment.amount
+        
+        # 房间收入（增加）
+        sessions_before = db.query(RoomSession).filter(
+            RoomSession.status == "settled",
+            RoomSession.start_time < start_datetime,
+            (RoomSession.table_fee_payment_method == "现金") | (RoomSession.table_fee_payment_method.is_(None))
+        ).all()
+        for session in sessions_before:
+            if session.table_fee and session.table_fee > 0:
+                starting_balance += session.table_fee
+        
+        # 其它收入（增加）
+        incomes_before = db.query(OtherIncome).filter(
+            OtherIncome.income_date < start_datetime,
+            (OtherIncome.payment_method == "现金") | (OtherIncome.payment_method.is_(None))
+        ).all()
+        for income in incomes_before:
+            starting_balance += income.amount
+        
+        # 其它支出（减少）
+        expenses_before = db.query(OtherExpense).filter(
+            OtherExpense.expense_date < start_datetime,
+            (OtherExpense.payment_method == "现金") | (OtherExpense.payment_method.is_(None))
+        ).all()
+        for expense in expenses_before:
+            starting_balance -= expense.amount
+    
+    # 1. 获取借款记录（现金支付）
+    loans_query = db.query(CustomerLoan).join(Customer, CustomerLoan.customer_id == Customer.id)
+    if start_datetime:
+        loans_query = loans_query.filter(CustomerLoan.created_at >= start_datetime)
+    if end_datetime:
+        loans_query = loans_query.filter(CustomerLoan.created_at <= end_datetime)
+    loans = loans_query.filter(
+        (CustomerLoan.payment_method == "现金") | (CustomerLoan.payment_method.is_(None))
+    ).all()
+    
+    for loan in loans:
+        items.append(CashFlowItem(
+            id=loan.id,
+            type="loan",
+            amount=-loan.amount,  # 借款为负数
+            record_datetime=loan.created_at,
+            description=f"借款 - {loan.customer.name if loan.customer else '未知客户'}",
+            customer_name=loan.customer.name if loan.customer else None,
+            room_name=None,
+            payment_method=loan.payment_method or "现金",
+            cash_balance=Decimal("0")  # 稍后计算
+        ))
+    
+    # 2. 获取还款记录（现金支付）
+    repayments_query = db.query(CustomerRepayment).join(Customer, CustomerRepayment.customer_id == Customer.id)
+    if start_datetime:
+        repayments_query = repayments_query.filter(CustomerRepayment.created_at >= start_datetime)
+    if end_datetime:
+        repayments_query = repayments_query.filter(CustomerRepayment.created_at <= end_datetime)
+    repayments = repayments_query.filter(
+        (CustomerRepayment.payment_method == "现金") | (CustomerRepayment.payment_method.is_(None))
+    ).all()
+    
+    for repayment in repayments:
+        items.append(CashFlowItem(
+            id=repayment.id,
+            type="repayment",
+            amount=repayment.amount,  # 还款为正数
+            record_datetime=repayment.created_at,
+            description=f"还款 - {repayment.customer.name if repayment.customer else '未知客户'}",
+            customer_name=repayment.customer.name if repayment.customer else None,
+            room_name=None,
+            payment_method=repayment.payment_method or "现金",
+            cash_balance=Decimal("0")  # 稍后计算
+        ))
+    
+    # 3. 获取房间收入（台子费，现金支付）
+    sessions_query = db.query(RoomSession).join(Room, RoomSession.room_id == Room.id)
+    sessions_query = sessions_query.filter(RoomSession.status == "settled")
+    if start_datetime:
+        sessions_query = sessions_query.filter(RoomSession.start_time >= start_datetime)
+    if end_datetime:
+        sessions_query = sessions_query.filter(RoomSession.start_time <= end_datetime)
+    sessions = sessions_query.filter(
+        (RoomSession.table_fee_payment_method == "现金") | (RoomSession.table_fee_payment_method.is_(None))
+    ).all()
+    
+    for session in sessions:
+        if session.table_fee and session.table_fee > 0:
+            items.append(CashFlowItem(
+                id=session.id,
+                type="room_income",
+                amount=session.table_fee,  # 房间收入为正数
+                record_datetime=session.start_time,
+                description=f"房间收入（台子费） - {session.room.name if session.room else '未知房间'}",
+                customer_name=None,
+                room_name=session.room.name if session.room else None,
+                payment_method=session.table_fee_payment_method or "现金",
+                cash_balance=Decimal("0")  # 稍后计算
+            ))
+    
+    # 4. 获取其它收入（现金支付）
+    other_incomes_query = db.query(OtherIncome)
+    if start_datetime:
+        other_incomes_query = other_incomes_query.filter(OtherIncome.income_date >= start_datetime)
+    if end_datetime:
+        other_incomes_query = other_incomes_query.filter(OtherIncome.income_date <= end_datetime)
+    other_incomes = other_incomes_query.filter(
+        (OtherIncome.payment_method == "现金") | (OtherIncome.payment_method.is_(None))
+    ).all()
+    
+    for income in other_incomes:
+        items.append(CashFlowItem(
+            id=income.id,
+            type="other_income",
+            amount=income.amount,  # 其它收入为正数
+            record_datetime=income.income_date,
+            description=f"其它收入 - {income.name}",
+            customer_name=None,
+            room_name=None,
+            payment_method=income.payment_method or "现金",
+            cash_balance=Decimal("0")  # 稍后计算
+        ))
+    
+    # 5. 获取其它支出（现金支付）
+    other_expenses_query = db.query(OtherExpense)
+    if start_datetime:
+        other_expenses_query = other_expenses_query.filter(OtherExpense.expense_date >= start_datetime)
+    if end_datetime:
+        other_expenses_query = other_expenses_query.filter(OtherExpense.expense_date <= end_datetime)
+    other_expenses = other_expenses_query.filter(
+        (OtherExpense.payment_method == "现金") | (OtherExpense.payment_method.is_(None))
+    ).all()
+    
+    for expense in other_expenses:
+        items.append(CashFlowItem(
+            id=expense.id,
+            type="other_expense",
+            amount=-expense.amount,  # 其它支出为负数
+            record_datetime=expense.expense_date,
+            description=f"其它支出 - {expense.name}",
+            customer_name=None,
+            room_name=None,
+            payment_method=expense.payment_method or "现金",
+            cash_balance=Decimal("0")  # 稍后计算
+        ))
+    
+    # 按时间正序排序（从早到晚），如果时间相同则按ID正序，用于计算余额
+    # 这样确保先发生的记录先计算余额
+    items.sort(key=lambda x: (x.record_datetime, x.id))
+    
+    # 计算每条记录后的现金余额
+    current_balance = starting_balance
+    for item in items:
+        current_balance += item.amount
+        item.cash_balance = current_balance
+    
+    # 按时间倒序排序（最新的在前），如果时间相同则按ID倒序，用于显示
+    # 这样确保最新的记录显示在最上面，同一时间的记录按ID倒序（ID大的在前，因为通常是后创建的）
+    items.sort(key=lambda x: (x.record_datetime, x.id), reverse=True)
+    
+    # 分页
+    total = len(items)
+    paginated_items = items[skip:skip + limit]
+    
+    return CashFlowListResponse(items=paginated_items, total=total)
 

@@ -12,7 +12,7 @@ from app.models import (
     Customer, Product, Room, RoomSession, RoomCustomer,
     CustomerLoan, CustomerRepayment, Transfer,
     ProductConsumption, MealRecord, RoomTransfer, User,
-    Supplier, Purchase, PurchaseItem, OtherExpense, OtherIncome, SystemConfig
+    Supplier, Purchase, PurchaseItem, OtherExpense, OtherIncome, SystemConfig, OperationLog
 )
 
 # 创建数据库表
@@ -33,6 +33,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 添加操作日志中间件
+from app.middleware.operation_log import OperationLogMiddleware
+app.add_middleware(OperationLogMiddleware)
 
 
 # 全局异常处理
@@ -71,7 +75,7 @@ async def health():
 
 
 # 注册API路由
-from app.api import customers, products, rooms, statistics, export, auth, backup, users, suppliers, purchases, other_expenses, other_incomes, system_configs, payment_statistics, category_statistics
+from app.api import customers, products, rooms, statistics, export, auth, backup, users, suppliers, purchases, other_expenses, other_incomes, system_configs, payment_statistics, category_statistics, operation_logs
 app.include_router(auth.router)
 app.include_router(customers.router)
 app.include_router(products.router)
@@ -87,4 +91,5 @@ app.include_router(other_incomes.router)
 app.include_router(system_configs.router)
 app.include_router(payment_statistics.router)
 app.include_router(category_statistics.router)
+app.include_router(operation_logs.router)
 
