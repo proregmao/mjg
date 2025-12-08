@@ -4,6 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 from app.db.database import get_db
 from app.models.system_config import SystemConfig
 from app.schemas.system_config import (
@@ -22,10 +23,24 @@ def get_system_configs(db: Session = Depends(get_db)):
 
 @router.get("/{config_key}", response_model=SystemConfigResponse)
 def get_system_config(config_key: str, db: Session = Depends(get_db)):
-    """获取系统配置"""
+    """获取系统配置（如果不存在则返回默认值）"""
     config = db.query(SystemConfig).filter(SystemConfig.key == config_key).first()
     if not config:
-        raise HTTPException(status_code=404, detail="配置不存在")
+        # 如果配置不存在，返回默认值而不是404
+        # 对于initial_cash，返回默认值0
+        default_values = {
+            "initial_cash": "0"
+        }
+        default_value = default_values.get(config_key, "")
+        now = datetime.now()
+        return SystemConfigResponse(
+            id=0,  # 临时ID，表示这是默认值
+            key=config_key,
+            value=default_value,
+            description="",
+            created_at=now,
+            updated_at=now
+        )
     return config
 
 

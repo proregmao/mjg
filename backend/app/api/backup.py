@@ -3,7 +3,7 @@
 """
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.db.database import get_db, DATABASE_URL
 from app.models.customer import Customer
 from app.models.customer_loan import CustomerLoan
@@ -18,6 +18,12 @@ from app.models.transfer import Transfer
 from app.models.room_transfer import RoomTransfer
 from app.models.supplier import Supplier
 from app.models.purchase import Purchase, PurchaseItem
+from app.models.other_expense import OtherExpense
+from app.models.other_income import OtherIncome
+from app.models.system_config import SystemConfig
+from app.models.operation_log import OperationLog
+from app.models.user import User
+from typing import Optional, List
 import os
 import shutil
 from datetime import datetime
@@ -37,6 +43,23 @@ class RestoreRequest(BaseModel):
 
 class DeleteRequest(BaseModel):
     filename: str
+
+
+class CleanDataRequest(BaseModel):
+    """数据清理请求模型"""
+    clean_customers: bool = Field(False, description="清理客户数据")
+    clean_products: bool = Field(False, description="清理商品数据")
+    clean_rooms: bool = Field(False, description="清理房间数据")
+    clean_sessions: bool = Field(False, description="清理房间会话数据")
+    clean_loans_repayments: bool = Field(False, description="清理借款还款数据")
+    clean_transfers: bool = Field(False, description="清理转账数据")
+    clean_suppliers: bool = Field(False, description="清理供应商数据")
+    clean_purchases: bool = Field(False, description="清理进货数据")
+    clean_other_income: bool = Field(False, description="清理其它收入数据")
+    clean_other_expense: bool = Field(False, description="清理其它支出数据")
+    clean_system_config: bool = Field(False, description="清理系统配置（包括初期现金）")
+    clean_operation_logs: bool = Field(False, description="清理操作日志")
+    clean_users: bool = Field(False, description="清理用户数据（默认不清理）")
 
 
 def get_database_path():
@@ -143,9 +166,13 @@ def delete_backup(request: DeleteRequest):
 
 
 @router.post("/clean")
-def clean_data(db: Session = Depends(get_db)):
-    """清理所有数据（清理前自动备份）"""
+def clean_data(request: CleanDataRequest, db: Session = Depends(get_db)):
+    """清理数据（清理前自动备份，支持选择性清理）"""
+    # 只清理用户明确选择的数据（默认值都是False，不会清理未选择的数据）
+    
     backup_filename = None
+    cleaned_items = []
+    
     try:
         # 1. 清理前自动备份
         db_path = get_database_path()
@@ -155,52 +182,119 @@ def clean_data(db: Session = Depends(get_db)):
             backup_path = BACKUP_DIR / backup_filename
             shutil.copy2(db_path, backup_path)
         
-        # 2. 清理所有数据
+        # 2. 按照外键依赖关系的逆序删除
         # 注意：需要按照外键依赖关系的逆序删除
         
-        # 删除还款记录
-        db.query(CustomerRepayment).delete()
+        # 删除还款记录（如果清理借款还款数据）
+        if request.clean_loans_repayments:
+            count = db.query(CustomerRepayment).delete()
+            if count > 0:
+                cleaned_items.append(f"还款记录({count}条)")
         
-        # 删除借款记录
-        db.query(CustomerLoan).delete()
+        # 删除借款记录（如果清理借款还款数据）
+        if request.clean_loans_repayments:
+            count = db.query(CustomerLoan).delete()
+            if count > 0:
+                cleaned_items.append(f"借款记录({count}条)")
         
-        # 删除转账记录
-        db.query(RoomTransfer).delete()
-        db.query(Transfer).delete()
+        # 删除转账记录（如果清理转账数据）
+        if request.clean_transfers:
+            count1 = db.query(RoomTransfer).delete()
+            count2 = db.query(Transfer).delete()
+            if count1 + count2 > 0:
+                cleaned_items.append(f"转账记录({count1 + count2}条)")
         
-        # 删除房间客户关联
-        db.query(RoomCustomer).delete()
+        # 删除房间客户关联（如果清理会话数据）
+        if request.clean_sessions:
+            count = db.query(RoomCustomer).delete()
+            if count > 0:
+                cleaned_items.append(f"房间客户关联({count}条)")
         
-        # 删除房间会话
-        db.query(RoomSession).delete()
+        # 删除房间会话（如果清理会话数据）
+        if request.clean_sessions:
+            count = db.query(RoomSession).delete()
+            if count > 0:
+                cleaned_items.append(f"房间会话({count}条)")
         
-        # 删除商品消费记录
-        db.query(ProductConsumption).delete()
+        # 删除商品消费记录（如果清理会话数据）
+        if request.clean_sessions:
+            count = db.query(ProductConsumption).delete()
+            if count > 0:
+                cleaned_items.append(f"商品消费记录({count}条)")
         
-        # 删除餐费记录
-        db.query(MealRecord).delete()
+        # 删除餐费记录（如果清理会话数据）
+        if request.clean_sessions:
+            count = db.query(MealRecord).delete()
+            if count > 0:
+                cleaned_items.append(f"餐费记录({count}条)")
         
-        # 删除进货相关数据（必须先删除进货项，再删除进货单）
-        db.query(PurchaseItem).delete()
-        db.query(Purchase).delete()
+        # 删除进货相关数据（如果清理进货数据，必须先删除进货项，再删除进货单）
+        if request.clean_purchases:
+            count1 = db.query(PurchaseItem).delete()
+            count2 = db.query(Purchase).delete()
+            if count1 + count2 > 0:
+                cleaned_items.append(f"进货数据({count1 + count2}条)")
         
-        # 删除供应商
-        db.query(Supplier).delete()
+        # 删除供应商（如果清理供应商数据）
+        if request.clean_suppliers:
+            count = db.query(Supplier).delete()
+            if count > 0:
+                cleaned_items.append(f"供应商({count}条)")
         
-        # 删除客户（软删除的也要清理）
-        db.query(Customer).delete()
+        # 删除客户（如果清理客户数据，软删除的也要清理）
+        if request.clean_customers:
+            count = db.query(Customer).delete()
+            if count > 0:
+                cleaned_items.append(f"客户({count}条)")
         
-        # 删除房间
-        db.query(Room).delete()
+        # 删除房间（如果清理房间数据）
+        if request.clean_rooms:
+            count = db.query(Room).delete()
+            if count > 0:
+                cleaned_items.append(f"房间({count}条)")
         
-        # 删除商品
-        db.query(Product).delete()
+        # 删除商品（如果清理商品数据）
+        if request.clean_products:
+            count = db.query(Product).delete()
+            if count > 0:
+                cleaned_items.append(f"商品({count}条)")
+        
+        # 删除其它收入（如果清理其它收入数据）
+        if request.clean_other_income:
+            count = db.query(OtherIncome).delete()
+            if count > 0:
+                cleaned_items.append(f"其它收入({count}条)")
+        
+        # 删除其它支出（如果清理其它支出数据）
+        if request.clean_other_expense:
+            count = db.query(OtherExpense).delete()
+            if count > 0:
+                cleaned_items.append(f"其它支出({count}条)")
+        
+        # 删除系统配置（如果清理系统配置，包括初期现金）
+        if request.clean_system_config:
+            count = db.query(SystemConfig).delete()
+            if count > 0:
+                cleaned_items.append(f"系统配置({count}条)")
+        
+        # 删除操作日志（如果清理操作日志）
+        if request.clean_operation_logs:
+            count = db.query(OperationLog).delete()
+            if count > 0:
+                cleaned_items.append(f"操作日志({count}条)")
+        
+        # 删除用户（如果清理用户数据，默认不清理）
+        if request.clean_users:
+            count = db.query(User).delete()
+            if count > 0:
+                cleaned_items.append(f"用户({count}条)")
         
         db.commit()
         
         return {
             "message": "数据清理成功",
-            "backup_file": backup_filename
+            "backup_file": backup_filename,
+            "cleaned_items": cleaned_items
         }
     except Exception as e:
         db.rollback()

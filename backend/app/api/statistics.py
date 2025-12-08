@@ -22,7 +22,8 @@ from app.models.other_income import OtherIncome
 from app.schemas.statistics import (
     DailyStatisticsResponse, MonthlyStatisticsResponse,
     CustomerRankingItem, RoomUsageItem, ProductSalesItem,
-    RoomDetailItem, CostDetailItem, CustomerFinancialItem
+    RoomDetailItem, CostDetailItem, CustomerFinancialItem,
+    TableFeeDetailItem, OtherIncomeDetailItem, OtherExpenseDetailItem
 )
 
 router = APIRouter(prefix="/api/statistics", tags=["统计报表"])
@@ -115,8 +116,71 @@ def get_daily_statistics(
     other_expense_total = sum(exp.amount for exp in other_expenses)
     other_income_total = sum(inc.amount for inc in other_incomes)
     
-    # 利润 = 房间收入 - 房间成本 + 其它收入 - 其它支出
-    total_profit = table_fee_total - product_cost - meal_cost + other_income_total - other_expense_total
+    # 台子费利润 = 台子费 - 商品成本 - 餐费成本
+    table_fee_profit = table_fee_total - product_cost - meal_cost
+    
+    # 总利润 = 台子费利润 + 其它收入 - 其它支出
+    total_profit = table_fee_profit + other_income_total - other_expense_total
+    
+    # 构建台子费明细清单
+    table_fee_details = []
+    for session in sessions:
+        # 计算该会话的商品成本和餐费成本
+        session_product_cost = Decimal("0")
+        session_meal_cost = Decimal("0")
+        
+        consumptions = db.query(ProductConsumption).filter(
+            ProductConsumption.session_id == session.id
+        ).all()
+        for consumption in consumptions:
+            session_product_cost += consumption.total_cost or Decimal("0")
+        
+        meals = db.query(MealRecord).filter(
+            MealRecord.session_id == session.id
+        ).all()
+        for meal in meals:
+            session_meal_cost += meal.cost_price or Decimal("0")
+        
+        table_fee = session.table_fee or Decimal("0")
+        session_profit = table_fee - session_product_cost - session_meal_cost
+        
+        room = db.query(Room).filter(Room.id == session.room_id).first()
+        table_fee_details.append(TableFeeDetailItem(
+            session_id=session.id,
+            room_id=session.room_id,
+            room_name=room.name if room else f"房间{session.room_id}",
+            table_fee=table_fee,
+            product_cost=session_product_cost,
+            meal_cost=session_meal_cost,
+            profit=session_profit,
+            start_time=session.start_time
+        ))
+    
+    # 构建其它收入明细清单
+    other_income_details = [
+        OtherIncomeDetailItem(
+            id=income.id,
+            name=income.name,
+            amount=income.amount,
+            payment_method=income.payment_method or "现金",
+            income_date=income.income_date,
+            description=income.description
+        )
+        for income in other_incomes
+    ]
+    
+    # 构建其它支出明细清单
+    other_expense_details = [
+        OtherExpenseDetailItem(
+            id=expense.id,
+            name=expense.name,
+            amount=expense.amount,
+            payment_method=expense.payment_method or "现金",
+            expense_date=expense.expense_date,
+            description=expense.description
+        )
+        for expense in other_expenses
+    ]
     
     # 构建房间详情列表
     room_details = [
@@ -209,6 +273,7 @@ def get_daily_statistics(
         other_income=other_income_total,
         other_expense=other_expense_total,
         table_fee_total=table_fee_total,
+        table_fee_profit=table_fee_profit,
         product_revenue=product_revenue,
         product_cost=product_cost,
         meal_revenue=meal_revenue,
@@ -217,7 +282,10 @@ def get_daily_statistics(
         room_count=len(room_ids),
         room_details=room_details,
         cost_details=cost_details,
-        customer_financials=customer_financials
+        customer_financials=customer_financials,
+        table_fee_details=table_fee_details,
+        other_income_details=other_income_details,
+        other_expense_details=other_expense_details
     )
 
 
@@ -340,15 +408,81 @@ def get_monthly_statistics(
             daily_other_income_dict[inc_date] = Decimal("0")
         daily_other_income_dict[inc_date] += inc.amount
     
-    # 利润 = 房间收入 - 房间成本 + 其它收入 - 其它支出
-    total_profit = table_fee_total - product_cost - meal_cost + other_income_total - other_expense_total
+    # 台子费利润 = 台子费 - 商品成本 - 餐费成本
+    table_fee_profit = table_fee_total - product_cost - meal_cost
+    
+    # 总利润 = 台子费利润 + 其它收入 - 其它支出
+    total_profit = table_fee_profit + other_income_total - other_expense_total
     
     # 构建每日统计列表
     daily_statistics = []
     for stat_date, stats in sorted(daily_stats_dict.items()):
         daily_other_income = daily_other_income_dict.get(stat_date, Decimal("0"))
         daily_other_expense = daily_other_expense_dict.get(stat_date, Decimal("0"))
-        daily_profit = stats["table_fee"] - stats["product_cost"] - stats["meal_cost"] + daily_other_income - daily_other_expense
+        daily_table_fee_profit = stats["table_fee"] - stats["product_cost"] - stats["meal_cost"]
+        daily_profit = daily_table_fee_profit + daily_other_income - daily_other_expense
+        
+        # 获取当天的会话列表
+        daily_sessions = [s for s in sessions if s.start_time.date() == stat_date]
+        
+        # 构建当天的台子费明细
+        daily_table_fee_details = []
+        for session in daily_sessions:
+            session_product_cost = Decimal("0")
+            session_meal_cost = Decimal("0")
+            
+            consumptions = db.query(ProductConsumption).filter(
+                ProductConsumption.session_id == session.id
+            ).all()
+            for consumption in consumptions:
+                session_product_cost += consumption.total_cost or Decimal("0")
+            
+            meals = db.query(MealRecord).filter(
+                MealRecord.session_id == session.id
+            ).all()
+            for meal in meals:
+                session_meal_cost += meal.cost_price or Decimal("0")
+            
+            table_fee = session.table_fee or Decimal("0")
+            session_profit = table_fee - session_product_cost - session_meal_cost
+            
+            room = db.query(Room).filter(Room.id == session.room_id).first()
+            daily_table_fee_details.append(TableFeeDetailItem(
+                session_id=session.id,
+                room_id=session.room_id,
+                room_name=room.name if room else f"房间{session.room_id}",
+                table_fee=table_fee,
+                product_cost=session_product_cost,
+                meal_cost=session_meal_cost,
+                profit=session_profit,
+                start_time=session.start_time
+            ))
+        
+        # 构建当天的其它收入和支出明细
+        daily_other_income_details = [
+            OtherIncomeDetailItem(
+                id=income.id,
+                name=income.name,
+                amount=income.amount,
+                payment_method=income.payment_method or "现金",
+                income_date=income.income_date,
+                description=income.description
+            )
+            for income in other_incomes if income.income_date.date() == stat_date
+        ]
+        
+        daily_other_expense_details = [
+            OtherExpenseDetailItem(
+                id=expense.id,
+                name=expense.name,
+                amount=expense.amount,
+                payment_method=expense.payment_method or "现金",
+                expense_date=expense.expense_date,
+                description=expense.description
+            )
+            for expense in other_expenses if expense.expense_date.date() == stat_date
+        ]
+        
         daily_statistics.append(DailyStatisticsResponse(
             date=stat_date,
             total_revenue=stats["revenue"],
@@ -357,13 +491,77 @@ def get_monthly_statistics(
             other_income=daily_other_income,
             other_expense=daily_other_expense,
             table_fee_total=stats["table_fee"],
+            table_fee_profit=daily_table_fee_profit,
             product_revenue=stats["product_revenue"],
             product_cost=stats["product_cost"],
             meal_revenue=stats["meal_revenue"],
             meal_cost=stats["meal_cost"],
             session_count=stats["session_count"],
-            room_count=len(stats["room_ids"])
+            room_count=len(stats["room_ids"]),
+            table_fee_details=daily_table_fee_details,
+            other_income_details=daily_other_income_details,
+            other_expense_details=daily_other_expense_details
         ))
+    
+    # 构建全月台子费明细清单
+    table_fee_details = []
+    for session in sessions:
+        # 计算该会话的商品成本和餐费成本
+        session_product_cost = Decimal("0")
+        session_meal_cost = Decimal("0")
+        
+        consumptions = db.query(ProductConsumption).filter(
+            ProductConsumption.session_id == session.id
+        ).all()
+        for consumption in consumptions:
+            session_product_cost += consumption.total_cost or Decimal("0")
+        
+        meals = db.query(MealRecord).filter(
+            MealRecord.session_id == session.id
+        ).all()
+        for meal in meals:
+            session_meal_cost += meal.cost_price or Decimal("0")
+        
+        table_fee = session.table_fee or Decimal("0")
+        session_profit = table_fee - session_product_cost - session_meal_cost
+        
+        room = db.query(Room).filter(Room.id == session.room_id).first()
+        table_fee_details.append(TableFeeDetailItem(
+            session_id=session.id,
+            room_id=session.room_id,
+            room_name=room.name if room else f"房间{session.room_id}",
+            table_fee=table_fee,
+            product_cost=session_product_cost,
+            meal_cost=session_meal_cost,
+            profit=session_profit,
+            start_time=session.start_time
+        ))
+    
+    # 构建全月其它收入明细清单
+    other_income_details = [
+        OtherIncomeDetailItem(
+            id=income.id,
+            name=income.name,
+            amount=income.amount,
+            payment_method=income.payment_method or "现金",
+            income_date=income.income_date,
+            description=income.description
+        )
+        for income in other_incomes
+    ]
+    
+    # 构建全月其它支出明细清单
+    other_expense_details = [
+        OtherExpenseDetailItem(
+            id=expense.id,
+            name=expense.name,
+            amount=expense.amount,
+            payment_method=expense.payment_method or "现金",
+            expense_date=expense.expense_date,
+            description=expense.description
+        )
+        for expense in other_expenses
+    ]
     
     return MonthlyStatisticsResponse(
         year=year,
@@ -374,13 +572,17 @@ def get_monthly_statistics(
         other_income=other_income_total,
         other_expense=other_expense_total,
         table_fee_total=table_fee_total,
+        table_fee_profit=table_fee_profit,
         product_revenue=product_revenue,
         product_cost=product_cost,
         meal_revenue=meal_revenue,
         meal_cost=meal_cost,
         session_count=len(sessions),
         room_count=len(room_ids),
-        daily_statistics=daily_statistics
+        daily_statistics=daily_statistics,
+        table_fee_details=table_fee_details,
+        other_income_details=other_income_details,
+        other_expense_details=other_expense_details
     )
 
 
