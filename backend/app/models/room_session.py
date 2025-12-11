@@ -21,6 +21,7 @@ class RoomSession(Base):
     total_revenue = Column(Numeric(10, 2), default=0, comment="总收入")
     total_cost = Column(Numeric(10, 2), default=0, comment="总成本")
     total_profit = Column(Numeric(10, 2), default=0, comment="总利润")
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True, comment="删除时间（软删除）")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="更新时间")
 

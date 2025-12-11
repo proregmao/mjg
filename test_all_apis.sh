@@ -2,7 +2,13 @@
 
 # 全面测试所有API接口
 
-BASE_URL="http://localhost:8001"
+# 从.env文件读取后端端口
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/backend/.env" ]; then
+    export $(cat "$SCRIPT_DIR/backend/.env" | grep -v '^#' | xargs)
+fi
+BACKEND_PORT=${BACKEND_PORT:-8087}
+BASE_URL="http://localhost:${BACKEND_PORT}"
 TOKEN=""
 
 echo "=========================================="
@@ -93,6 +99,7 @@ echo ""
 echo "=========================================="
 echo "API测试完成"
 echo "=========================================="
+
 
 
 

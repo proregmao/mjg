@@ -19,6 +19,7 @@ from app.models.other_expense import OtherExpense
 from app.models.other_income import OtherIncome
 from app.models.system_config import SystemConfig
 from app.models.operation_log import OperationLog
+from app.models.cash_transfer import CashTransfer
 
 __all__ = [
     "Customer",
@@ -40,6 +41,7 @@ __all__ = [
     "OtherIncome",
     "SystemConfig",
     "OperationLog",
+    "CashTransfer",
 ]
 
 

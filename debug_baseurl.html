@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>检查baseURL</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h1>前端baseURL检查</h1>
+    <div id="result"></div>
+    <script>
+        // 检查process.env是否被DefinePlugin注入
+        const result = document.getElementById('result');
+        
+        function check(name, value) {
+            const p = document.createElement('p');
+            p.innerHTML = `<strong>${name}:</strong> ${value || 'undefined'}`;
+            result.appendChild(p);
+        }
+        
+        check('process.env.VUE_APP_API_BASE_URL', typeof process !== 'undefined' && process.env && process.env.VUE_APP_API_BASE_URL);
+        check('window.location.host', window.location.host);
+        check('window.location.origin', window.location.origin);
+        
+        // 尝试从网络配置获取
+        fetch('/api/test').catch(() => {
+            check('fetch测试', '无法获取，这是正常的（API不存在）');
+        });
+    </script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 """
 客户管理API
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional
@@ -135,6 +135,201 @@ def get_customer_loans(customer_id: int, db: Session = Depends(get_db)):
     return loans
 
 
+@router.put("/{customer_id}/loans/{loan_id}/description")
+def update_loan_description(
+    customer_id: int,
+    loan_id: int,
+    description: str = Query(..., description="说明内容"),
+    db: Session = Depends(get_db)
+):
+    """更新借款记录说明"""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    
+    loan = db.query(CustomerLoan).filter(
+        CustomerLoan.id == loan_id,
+        CustomerLoan.customer_id == customer_id
+    ).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="借款记录不存在")
+    
+    loan.description = description
+    db.commit()
+    return {"message": "说明已更新", "description": description}
+
+
+@router.put("/{customer_id}/repayments/{repayment_id}/description")
+def update_repayment_description(
+    customer_id: int,
+    repayment_id: int,
+    description: str = Query(..., description="说明内容"),
+    db: Session = Depends(get_db)
+):
+    """更新还款记录说明"""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    
+    repayment = db.query(CustomerRepayment).filter(
+        CustomerRepayment.id == repayment_id,
+        CustomerRepayment.customer_id == customer_id
+    ).first()
+    if not repayment:
+        raise HTTPException(status_code=404, detail="还款记录不存在")
+    
+    repayment.description = description
+    db.commit()
+    return {"message": "说明已更新", "description": description}
+
+
+@router.delete("/{customer_id}/loans/{loan_id}")
+def delete_loan(
+    customer_id: int,
+    loan_id: int,
+    session_id: Optional[int] = Query(None, description="房间会话ID，用于验证是否是最后一条记录"),
+    db: Session = Depends(get_db)
+):
+    """删除借款记录（只能删除最后一条）"""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    
+    loan = db.query(CustomerLoan).filter(
+        CustomerLoan.id == loan_id,
+        CustomerLoan.customer_id == customer_id
+    ).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="借款记录不存在")
+    
+    # 如果提供了session_id，只检查该会话中的记录
+    if session_id:
+        # 检查是否是该会话中最后一条记录（借款或还款，按创建时间排序）
+        all_loans = db.query(CustomerLoan).filter(
+            CustomerLoan.session_id == session_id,
+            CustomerLoan.customer_id == customer_id
+        ).order_by(CustomerLoan.created_at.desc()).all()
+        
+        all_repayments = db.query(CustomerRepayment).filter(
+            CustomerRepayment.session_id == session_id,
+            CustomerRepayment.customer_id == customer_id
+        ).order_by(CustomerRepayment.created_at.desc()).all()
+        
+        # 合并所有记录，按创建时间排序
+        all_records = []
+        for l in all_loans:
+            all_records.append(('loan', l.id, l.created_at))
+        for r in all_repayments:
+            all_records.append(('repayment', r.id, r.created_at))
+        
+        all_records.sort(key=lambda x: x[2], reverse=True)
+        
+        if not all_records or all_records[0][0] != 'loan' or all_records[0][1] != loan_id:
+            raise HTTPException(status_code=400, detail="只能删除最后一条记录")
+    else:
+        # 检查是否是最后一条借款记录（按创建时间排序）
+        all_loans = db.query(CustomerLoan).filter(
+            CustomerLoan.customer_id == customer_id
+        ).order_by(CustomerLoan.created_at.desc()).all()
+        
+        if not all_loans or all_loans[0].id != loan_id:
+            raise HTTPException(status_code=400, detail="只能删除最后一条借款记录")
+    
+    # 回滚客户余额：借款时减少了balance，删除时需要增加balance
+    customer.balance = customer.balance + loan.amount
+    
+    # 如果借款已被还款，需要恢复还款记录关联的借款状态
+    repayments = db.query(CustomerRepayment).filter(
+        CustomerRepayment.loan_id == loan_id
+    ).all()
+    
+    for repayment in repayments:
+        # 回滚还款对客户余额的影响
+        customer.balance = customer.balance - repayment.amount
+        # 恢复借款的剩余金额
+        loan.remaining_amount = loan.remaining_amount + repayment.amount
+        if loan.remaining_amount > 0:
+            loan.status = "active"
+    
+    # 删除借款记录
+    db.delete(loan)
+    db.commit()
+    
+    return {"message": "借款记录已删除"}
+
+
+@router.delete("/{customer_id}/repayments/{repayment_id}")
+def delete_repayment(
+    customer_id: int,
+    repayment_id: int,
+    session_id: Optional[int] = Query(None, description="房间会话ID，用于验证是否是最后一条记录"),
+    db: Session = Depends(get_db)
+):
+    """删除还款记录（只能删除最后一条）"""
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    
+    repayment = db.query(CustomerRepayment).filter(
+        CustomerRepayment.id == repayment_id,
+        CustomerRepayment.customer_id == customer_id
+    ).first()
+    if not repayment:
+        raise HTTPException(status_code=404, detail="还款记录不存在")
+    
+    # 如果提供了session_id，只检查该会话中的记录
+    if session_id:
+        # 检查是否是该会话中最后一条记录（借款或还款，按创建时间排序）
+        all_loans = db.query(CustomerLoan).filter(
+            CustomerLoan.session_id == session_id,
+            CustomerLoan.customer_id == customer_id
+        ).order_by(CustomerLoan.created_at.desc()).all()
+        
+        all_repayments = db.query(CustomerRepayment).filter(
+            CustomerRepayment.session_id == session_id,
+            CustomerRepayment.customer_id == customer_id
+        ).order_by(CustomerRepayment.created_at.desc()).all()
+        
+        # 合并所有记录，按创建时间排序
+        all_records = []
+        for l in all_loans:
+            all_records.append(('loan', l.id, l.created_at))
+        for r in all_repayments:
+            all_records.append(('repayment', r.id, r.created_at))
+        
+        all_records.sort(key=lambda x: x[2], reverse=True)
+        
+        if not all_records or all_records[0][0] != 'repayment' or all_records[0][1] != repayment_id:
+            raise HTTPException(status_code=400, detail="只能删除最后一条记录")
+    else:
+        # 检查是否是最后一条还款记录（按创建时间排序）
+        all_repayments = db.query(CustomerRepayment).filter(
+            CustomerRepayment.customer_id == customer_id
+        ).order_by(CustomerRepayment.created_at.desc()).all()
+        
+        if not all_repayments or all_repayments[0].id != repayment_id:
+            raise HTTPException(status_code=400, detail="只能删除最后一条还款记录")
+    
+    # 回滚客户余额：还款时增加了balance，删除时需要减少balance
+    customer.balance = customer.balance - repayment.amount
+    
+    # 如果还款关联了借款记录，需要恢复借款状态
+    if repayment.loan_id:
+        loan = db.query(CustomerLoan).filter(CustomerLoan.id == repayment.loan_id).first()
+        if loan:
+            # 恢复借款的剩余金额
+            loan.remaining_amount = loan.remaining_amount + repayment.amount
+            # 如果还款金额大于等于借款金额，借款状态恢复为active
+            if loan.remaining_amount > 0:
+                loan.status = "active"
+    
+    # 删除还款记录
+    db.delete(repayment)
+    db.commit()
+    
+    return {"message": "还款记录已删除"}
+
+
 @router.get("/{customer_id}/repayments", response_model=List[RepaymentResponse])
 def get_customer_repayments(customer_id: int, db: Session = Depends(get_db)):
     """获取客户还款记录"""
@@ -257,12 +452,35 @@ def create_customer_repayment(
         else:
             message = "还款成功"
     
+    # 生成说明（在创建记录之前）
+    payment_method = repayment.payment_method or "现金"
+    if is_refund:
+        description = f"退款/支付给客户 ({payment_method})"
+    else:
+        # 确定loan_id
+        loan_id = None
+        if repayment.loan_id:
+            loan_id = repayment.loan_id
+        elif loan_repay > 0:
+            # 查找active_loan（在else分支中定义）
+            if 'active_loan' in locals() and active_loan:
+                loan_id = active_loan.id
+            # 如果repayment.loan_id在else分支中被设置
+            if not loan_id and hasattr(repayment, 'loan_id') and repayment.loan_id:
+                loan_id = repayment.loan_id
+        
+        if loan_id:
+            description = f"还款 - 关联借款ID: {loan_id} ({payment_method})"
+        else:
+            description = f"还款 - 还总欠款 ({payment_method})"
+    
     # 创建还款记录（金额可以是负数）
     db_repayment = CustomerRepayment(
         customer_id=customer_id,
         loan_id=repayment.loan_id,
         amount=repay_amount,  # 可以是负数
-        payment_method=repayment.payment_method,
+        payment_method=payment_method,
+        description=description,
         session_id=repayment.session_id
     )
     db.add(db_repayment)
@@ -336,12 +554,15 @@ def transfer_customer_debt(transfer: CustomerTransfer, db: Session = Depends(get
         
         # 3. 创建转入方的新借款记录
         from app.models.customer_loan import CustomerLoan
+        # 生成说明
+        new_description = f"向麻将馆借款 - 剩余未还: ¥{transfer.amount:.2f} - 正常"
         new_loan = CustomerLoan(
             customer_id=transfer.to_customer_id,
             amount=transfer.amount,
             loan_type="from_shop",
             status="active",
             remaining_amount=transfer.amount,
+            description=new_description,
             transfer_from_id=transfer_record.id
         )
         db.add(new_loan)

@@ -33,6 +33,7 @@ class LoanResponse(BaseModel):
     status: str
     remaining_amount: Decimal
     payment_method: Optional[str] = None
+    description: Optional[str] = None
     session_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
@@ -52,6 +53,7 @@ class RepaymentResponse(BaseModel):
     loan_id: Optional[int] = None
     amount: Decimal
     payment_method: Optional[str] = None
+    description: Optional[str] = None
     session_id: Optional[int] = None
     created_at: datetime
 

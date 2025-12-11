@@ -104,3 +104,8 @@ def delete_other_income(income_id: int, db: Session = Depends(get_db)):
 
 
 
+
+
+
+
+

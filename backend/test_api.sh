@@ -1,7 +1,13 @@
 #!/bin/bash
 # API测试脚本
 
-BASE_URL="http://localhost:8001"
+# 从.env文件读取后端端口
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    export $(cat "$SCRIPT_DIR/.env" | grep -v '^#' | xargs)
+fi
+BACKEND_PORT=${BACKEND_PORT:-8087}
+BASE_URL="http://localhost:${BACKEND_PORT}"
 
 echo "=========================================="
 echo "开始测试麻将馆记账系统API"

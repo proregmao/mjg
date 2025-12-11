@@ -12,7 +12,7 @@ from app.models import (
     Customer, Product, Room, RoomSession, RoomCustomer,
     CustomerLoan, CustomerRepayment, Transfer,
     ProductConsumption, MealRecord, RoomTransfer, User,
-    Supplier, Purchase, PurchaseItem, OtherExpense, OtherIncome, SystemConfig, OperationLog
+    Supplier, Purchase, PurchaseItem, OtherExpense, OtherIncome, SystemConfig, OperationLog, CashTransfer
 )
 
 # 创建数据库表

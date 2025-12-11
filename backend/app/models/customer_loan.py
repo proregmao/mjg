@@ -21,6 +21,7 @@ class CustomerLoan(Base):
     status = Column(String(20), default="active", index=True, comment="状态：active=正常, transferred=已转移, repaid=已还清")
     remaining_amount = Column(Numeric(10, 2), nullable=False, comment="剩余未还金额")
     payment_method = Column(String(20), comment="支付方式：现金、微信、支付宝、转账")
+    description = Column(String(500), comment="说明（可编辑）")
     session_id = Column(Integer, ForeignKey("room_sessions.id"), comment="房间使用记录ID")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False, comment="更新时间")

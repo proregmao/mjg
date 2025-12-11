@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>后端API测试</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        #result { margin-top: 20px; padding: 15px; border: 1px solid #ddd; background: #f9f9f9; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>后端API连接测试</h1>
+    <p>如果这些测试都通过，说明后端正常，问题在浏览器缓存。</p>
+    
+    <button onclick="testAll()">运行所有测试</button>
+    <button onclick="testHealth()">测试健康检查</button>
+    <button onclick="testLogin()">测试登录接口</button>
+    
+    <div id="result"></div>
+    
+    <script>
+        const API = 'http://localhost:8087';
+        const result = document.getElementById('result');
+        
+        function addResult(msg, isError) {
+            const p = document.createElement('p');
+            p.className = isError ? 'error' : 'success';
+            p.textContent = msg;
+            result.appendChild(p);
+        }
+        
+        async function testHealth() {
+            result.innerHTML = '<h3>测试健康检查...</h3>';
+            try {
+                const res = await fetch(API + '/health');
+                const data = await res.json();
+                addResult('✅ 健康检查成功: ' + JSON.stringify(data));
+                return true;
+            } catch (e) {
+                addResult('❌ 健康检查失败: ' + e.message, true);
+                return false;
+            }
+        }
+        
+        async function testLogin() {
+            result.innerHTML += '<h3>测试登录接口...</h3>';
+            try {
+                const res = await fetch(API + '/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'test', password: 'test' })
+                });
+                const data = await res.json();
+                addResult('✅ 登录测试成功: ' + JSON.stringify(data));
+                return true;
+            } catch (e) {
+                addResult('❌ 登录测试失败: ' + e.message, true);
+                return false;
+            }
+        }
+        
+        async function testAll() {
+            result.innerHTML = '';
+            const h = await testHealth();
+            const l = await testLogin();
+            if (h && l) {
+                addResult('✅ 所有测试通过！后端服务正常。');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -2,8 +2,18 @@
 
 # 全面测试所有页面功能
 
-BASE_URL="http://localhost:8001"
-FRONTEND_URL="http://localhost:8091"
+# 从.env文件读取端口配置
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/backend/.env" ]; then
+    export $(cat "$SCRIPT_DIR/backend/.env" | grep -v '^#' | xargs)
+fi
+if [ -f "$SCRIPT_DIR/vue3-admin-better/.env" ]; then
+    export $(cat "$SCRIPT_DIR/vue3-admin-better/.env" | grep -v '^#' | xargs)
+fi
+BACKEND_PORT=${BACKEND_PORT:-8087}
+FRONTEND_PORT=${FRONTEND_PORT:-88}
+BASE_URL="http://localhost:${BACKEND_PORT}"
+FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
 
 echo "=========================================="
 echo "全面测试所有页面功能"
@@ -155,6 +165,7 @@ echo ""
 echo "=========================================="
 echo "测试完成"
 echo "=========================================="
+
 
 
 

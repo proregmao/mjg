@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>浏览器API连接测试</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; font-size: 16px; }
+        #result { margin-top: 20px; padding: 15px; border: 1px solid #ddd; background: #f9f9f9; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+        .info { color: blue; }
+        pre { background: #f0f0f0; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>浏览器API连接诊断</h1>
+    <p>这个页面会测试浏览器是否能连接到后端API</p>
+    
+    <button onclick="testAll()">运行所有测试</button>
+    <button onclick="testHealth()">测试健康检查</button>
+    <button onclick="testLogin()">测试登录接口</button>
+    <button onclick="checkConfig()">检查配置</button>
+    
+    <div id="result"></div>
+    
+    <script>
+        const API_BASE = 'http://localhost:8087';
+        const result = document.getElementById('result');
+        
+        function addResult(msg, className = 'info') {
+            const p = document.createElement('p');
+            p.className = className;
+            p.textContent = msg;
+            result.appendChild(p);
+        }
+        
+        function checkConfig() {
+            result.innerHTML = '<h3>检查配置...</h3>';
+            addResult('浏览器信息:', 'info');
+            addResult(`User Agent: ${navigator.userAgent}`, 'info');
+            addResult(`当前页面: ${window.location.href}`, 'info');
+            addResult(`协议: ${window.location.protocol}`, 'info');
+            addResult(`主机: ${window.location.host}`, 'info');
+            addResult('', 'info');
+            addResult('API配置:', 'info');
+            addResult(`测试API地址: ${API_BASE}`, 'info');
+            addResult('', 'info');
+            addResult('如果测试失败，可能的原因:', 'info');
+            addResult('1. 后端服务未启动', 'error');
+            addResult('2. 端口8087被防火墙阻止', 'error');
+            addResult('3. 浏览器安全策略阻止', 'error');
+            addResult('4. 网络配置问题', 'error');
+        }
+        
+        async function testHealth() {
+            result.innerHTML += '<h3>测试健康检查...</h3>';
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${API_BASE}/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                const endTime = Date.now();
+                const data = await response.json();
+                addResult(`✅ 健康检查成功 (${endTime - startTime}ms)`, 'success');
+                addResult(`响应: ${JSON.stringify(data)}`, 'success');
+                return true;
+            } catch (e) {
+                addResult(`❌ 健康检查失败: ${e.message}`, 'error');
+                addResult(`错误类型: ${e.name}`, 'error');
+                addResult(`错误代码: ${e.code || 'N/A'}`, 'error');
+                return false;
+            }
+        }
+        
+        async function testLogin() {
+            result.innerHTML += '<h3>测试登录接口...</h3>';
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${API_BASE}/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: 'test',
+                        password: 'test'
+                    })
+                });
+                const endTime = Date.now();
+                const data = await response.json();
+                addResult(`✅ 登录测试成功 (${endTime - startTime}ms)`, 'success');
+                addResult(`响应: ${JSON.stringify(data)}`, 'success');
+                return true;
+            } catch (e) {
+                addResult(`❌ 登录测试失败: ${e.message}`, 'error');
+                addResult(`错误类型: ${e.name}`, 'error');
+                addResult(`错误代码: ${e.code || 'N/A'}`, 'error');
+                if (e.message.includes('ERR_CONNECTION_REFUSED')) {
+                    addResult('', 'error');
+                    addResult('🔍 诊断建议:', 'error');
+                    addResult('1. 检查后端服务是否运行: sudo systemctl status mjg-backend.service', 'error');
+                    addResult('2. 检查端口是否监听: netstat -tlnp | grep 8087', 'error');
+                    addResult('3. 检查防火墙设置', 'error');
+                }
+                return false;
+            }
+        }
+        
+        async function testAll() {
+            result.innerHTML = '';
+            checkConfig();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const h = await testHealth();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const l = await testLogin();
+            if (h && l) {
+                addResult('', 'success');
+                addResult('✅ 所有测试通过！后端服务正常，问题在前端代码缓存。', 'success');
+                addResult('请清除浏览器缓存后重试。', 'success');
+            } else {
+                addResult('', 'error');
+                addResult('❌ 测试失败，请检查后端服务状态。', 'error');
+            }
+        }
+    </script>
+</body>
+</html>

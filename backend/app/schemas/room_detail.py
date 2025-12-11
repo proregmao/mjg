@@ -1,7 +1,7 @@
 """
 房间使用记录详情相关的Pydantic模型
 """
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, ConfigDict
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -44,6 +44,25 @@ class LoanDetail(BaseModel):
     customer_id: int
     customer_name: str
     amount: Decimal
+    remaining_amount: Decimal
+    payment_method: Optional[str] = None
+    description: Optional[str] = None
+    created_at: datetime
+
+    @field_serializer('created_at')
+    def serialize_datetime(self, dt: datetime) -> str:
+        return format_datetime_local(dt)
+
+
+class RepaymentDetail(BaseModel):
+    """还款记录详情"""
+    id: int
+    customer_id: int
+    customer_name: str
+    loan_id: Optional[int] = None
+    amount: Decimal
+    payment_method: Optional[str] = None
+    description: Optional[str] = None
     created_at: datetime
 
     @field_serializer('created_at')
@@ -61,6 +80,7 @@ class ProductConsumptionDetail(BaseModel):
     quantity: int
     unit_price: Decimal
     total_price: Decimal
+    payment_method: Optional[str] = None
     created_at: datetime
 
     @field_serializer('created_at')
@@ -77,6 +97,7 @@ class MealRecordDetail(BaseModel):
     customer_name: Optional[str] = None
     amount: Decimal
     description: Optional[str] = None
+    payment_method: Optional[str] = None
     created_at: datetime
 
     @field_serializer('created_at')
@@ -86,6 +107,13 @@ class MealRecordDetail(BaseModel):
 
 class RoomSessionDetailResponse(BaseModel):
     """房间使用记录详情响应模型"""
+    # Pydantic v2 配置
+    model_config = ConfigDict(
+        # 确保空列表也会被序列化
+        exclude_none=False,
+        exclude_unset=False,
+    )
+    
     id: int
     room_id: int
     room_name: str
@@ -93,6 +121,7 @@ class RoomSessionDetailResponse(BaseModel):
     end_time: Optional[datetime] = None
     status: str
     table_fee: Decimal
+    table_fee_payment_method: Optional[str] = Field(default=None, exclude=False)
     total_revenue: Decimal
     total_cost: Decimal
     total_profit: Decimal
@@ -100,6 +129,7 @@ class RoomSessionDetailResponse(BaseModel):
     updated_at: datetime
     customers: List[RoomCustomerDetail] = Field(default_factory=list)
     loans: List[LoanDetail] = Field(default_factory=list)
+    repayments: List[RepaymentDetail] = Field(default_factory=list)
     product_consumptions: List[ProductConsumptionDetail] = Field(default_factory=list)
     meal_records: List[MealRecordDetail] = Field(default_factory=list)
 

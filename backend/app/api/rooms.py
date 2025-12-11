@@ -24,6 +24,7 @@ from app.schemas.room import (
     RecordRepaymentRequest, RecordProductRequest, RecordMealRequest, 
     TransferRoomRequest, SetTableFeeRequest
 )
+from app.schemas.room_detail import RoomSessionDetailResponse
 
 router = APIRouter(prefix="/api/rooms", tags=["房间管理"])
 
@@ -171,12 +172,16 @@ def record_loan(
     if not session:
         raise HTTPException(status_code=404, detail="房间使用记录不存在")
     
-    if session.status != "in_progress":
-        raise HTTPException(status_code=400, detail="房间使用已结束，无法记录借款")
+    # 允许在已结算的房间中记录借款（用于补充记录）
+    # if session.status != "in_progress":
+    #     raise HTTPException(status_code=400, detail="房间使用已结束，无法记录借款")
     
     customer = db.query(Customer).filter(Customer.id == request.customer_id).first()
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
+    
+    # 生成说明
+    description = f"向麻将馆借款 - 剩余未还: ¥{request.amount:.2f} - 正常"
     
     # 创建借款记录
     loan = CustomerLoan(
@@ -186,6 +191,7 @@ def record_loan(
         status="active",
         remaining_amount=request.amount,
         payment_method=request.payment_method or "现金",  # 默认现金
+        description=description,
         session_id=session_id
     )
     db.add(loan)
@@ -234,12 +240,17 @@ def record_repayment(
         else:
             customer.deposit = Decimal('0')
         
+        # 生成说明（负数表示退款）
+        payment_method = request.payment_method or "现金"
+        description = f"退款/支付给客户 ({payment_method})"
+        
         # 创建还款记录（负数）
         repayment = CustomerRepayment(
             customer_id=request.customer_id,
             loan_id=None,  # 退款不关联借款记录
             amount=repay_amount,  # 负数
-            payment_method=request.payment_method or "现金",  # 默认现金
+            payment_method=payment_method,
+            description=description,
             session_id=session_id
         )
         db.add(repayment)
@@ -276,12 +287,17 @@ def record_repayment(
             loan_repay = remaining_amount
             extra_repay = repay_amount - remaining_amount
         
+        # 生成说明
+        payment_method = request.payment_method or "现金"
+        description = f"还款 - 关联借款ID: {loan.id} ({payment_method})"
+        
         # 创建还款记录
         repayment = CustomerRepayment(
             customer_id=request.customer_id,
             loan_id=loan.id,
             amount=repay_amount,  # 记录实际还款总额
-            payment_method=request.payment_method or "现金",  # 默认现金
+            payment_method=payment_method,
+            description=description,
             session_id=session_id
         )
         db.add(repayment)
@@ -332,12 +348,17 @@ def record_repayment(
                 loan_repay = remaining_amount
                 extra_repay = repay_amount - remaining_amount
             
+            # 生成说明
+            payment_method = request.payment_method or "现金"
+            description = f"还款 - 关联借款ID: {active_loan.id} ({payment_method})"
+            
             # 创建还款记录
             repayment = CustomerRepayment(
                 customer_id=request.customer_id,
                 loan_id=active_loan.id,
                 amount=repay_amount,  # 记录实际还款总额
-                payment_method=request.payment_method or "现金",  # 默认现金
+                payment_method=payment_method,
+                description=description,
                 session_id=session_id
             )
             db.add(repayment)
@@ -366,12 +387,17 @@ def record_repayment(
             
             return result
         else:
+            # 生成说明
+            payment_method = request.payment_method or "现金"
+            description = f"还款 - 还总欠款 ({payment_method})"
+            
             # 没有借款记录，直接更新总帐
             repayment = CustomerRepayment(
                 customer_id=request.customer_id,
                 loan_id=None,  # 不关联借款记录
                 amount=repay_amount,
-                payment_method=request.payment_method or "现金",  # 默认现金
+                payment_method=payment_method,
+                description=description,
                 session_id=session_id
             )
             db.add(repayment)
@@ -402,8 +428,9 @@ def record_product(
     if not session:
         raise HTTPException(status_code=404, detail="房间使用记录不存在")
     
-    if session.status != "in_progress":
-        raise HTTPException(status_code=400, detail="房间使用已结束，无法记录消费")
+    # 允许在已结算的房间中记录商品消费（用于补充记录）
+    # if session.status != "in_progress":
+    #     raise HTTPException(status_code=400, detail="房间使用已结束，无法记录消费")
     
     product = db.query(Product).filter(Product.id == request.product_id).first()
     if not product:
@@ -458,8 +485,9 @@ def record_meal(
     if not session:
         raise HTTPException(status_code=404, detail="房间使用记录不存在")
     
-    if session.status != "in_progress":
-        raise HTTPException(status_code=400, detail="房间使用已结束，无法记录餐费")
+    # 允许在已结算的房间中记录餐费（用于补充记录）
+    # if session.status != "in_progress":
+    #     raise HTTPException(status_code=400, detail="房间使用已结束，无法记录餐费")
     
     product = db.query(Product).filter(Product.id == request.product_id).first()
     if not product:
@@ -469,12 +497,14 @@ def record_meal(
         raise HTTPException(status_code=400, detail="该商品不是餐费类型")
     
     # 创建餐费记录
+    # 餐费的成本价等于餐费金额本身，因为餐费是实际支出的费用
+    # 餐费金额会变动（这顿100，下顿可能是200），所以成本应该等于当次餐费金额
     meal_record = MealRecord(
         session_id=session_id,
         customer_id=request.customer_id,
         product_id=request.product_id,
         amount=request.amount,
-        cost_price=product.cost_price,
+        cost_price=request.amount,  # 餐费成本 = 餐费金额（餐费本身就是成本）
         payment_method=request.payment_method or "现金",  # 默认现金
         description=request.description
     )
@@ -482,7 +512,7 @@ def record_meal(
     
     # 更新房间使用记录的收入和成本
     session.total_revenue = session.total_revenue + request.amount
-    session.total_cost = session.total_cost + product.cost_price
+    session.total_cost = session.total_cost + request.amount  # 餐费成本 = 餐费金额
     
     db.commit()
     db.refresh(meal_record)
@@ -595,10 +625,15 @@ def get_sessions(
     limit: int = 100,
     room_id: Optional[int] = None,
     status: Optional[str] = None,
+    include_deleted: bool = False,
     db: Session = Depends(get_db)
 ):
     """获取房间使用记录"""
     query = db.query(RoomSession)
+    
+    # 默认不显示已删除的记录
+    if not include_deleted:
+        query = query.filter(RoomSession.deleted_at.is_(None))
     
     if room_id:
         query = query.filter(RoomSession.room_id == room_id)
@@ -610,18 +645,21 @@ def get_sessions(
     return sessions
 
 
-@router.get("/sessions/{session_id}")
-def get_session(session_id: int, db: Session = Depends(get_db)):
+@router.get("/sessions/{session_id}", response_model=RoomSessionDetailResponse)
+def get_session(session_id: int, include_deleted: bool = False, db: Session = Depends(get_db)):
     """获取房间使用记录详情（包含关联数据）"""
     from app.schemas.room_detail import (
-        RoomSessionDetailResponse,
         RoomCustomerDetail,
         LoanDetail,
+        RepaymentDetail,
         ProductConsumptionDetail,
         MealRecordDetail,
     )
     
-    session = db.query(RoomSession).filter(RoomSession.id == session_id).first()
+    query = db.query(RoomSession).filter(RoomSession.id == session_id)
+    if not include_deleted:
+        query = query.filter(RoomSession.deleted_at.is_(None))
+    session = query.first()
     if not session:
         raise HTTPException(status_code=404, detail="房间使用记录不存在")
     
@@ -657,8 +695,31 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
                 customer_id=customer.id,
                 customer_name=customer.name,
                 amount=loan.amount,
+                remaining_amount=loan.remaining_amount,
+                payment_method=loan.payment_method,
+                description=loan.description,
                 created_at=loan.created_at
             ))
+    
+    # 获取还款记录
+    repayments = db.query(CustomerRepayment).filter(
+        CustomerRepayment.session_id == session_id
+    ).all()
+    repayment_details = []
+    for repayment in repayments:
+        customer = db.query(Customer).filter(Customer.id == repayment.customer_id).first()
+        # 即使客户不存在，也返回还款记录（使用客户ID作为名称）
+        customer_name = customer.name if customer else f"客户ID:{repayment.customer_id}"
+        repayment_details.append(RepaymentDetail(
+            id=repayment.id,
+            customer_id=repayment.customer_id,
+            customer_name=customer_name,
+            loan_id=repayment.loan_id,
+            amount=repayment.amount,
+            payment_method=repayment.payment_method,
+            description=repayment.description,
+            created_at=repayment.created_at
+        ))
     
     # 获取商品消费记录
     consumptions = db.query(ProductConsumption).filter(
@@ -681,6 +742,7 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
             quantity=consumption.quantity,
             unit_price=consumption.unit_price,
             total_price=consumption.total_price,
+            payment_method=consumption.payment_method,
             created_at=consumption.created_at
         ))
     
@@ -704,10 +766,11 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
             customer_name=customer_name,
             amount=meal.amount,
             description=meal.description,
+            payment_method=meal.payment_method,
             created_at=meal.created_at
         ))
     
-    return RoomSessionDetailResponse(
+    response = RoomSessionDetailResponse(
         id=session.id,
         room_id=session.room_id,
         room_name=room.name if room else "",
@@ -715,6 +778,7 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
         end_time=session.end_time,
         status=session.status,
         table_fee=session.table_fee,
+        table_fee_payment_method=session.table_fee_payment_method,
         total_revenue=session.total_revenue,
         total_cost=session.total_cost,
         total_profit=session.total_profit,
@@ -722,7 +786,347 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
         updated_at=session.updated_at,
         customers=customers,
         loans=loan_details,
+        repayments=repayment_details,
         product_consumptions=consumption_details,
         meal_records=meal_details
     )
+    
+    # 调试：打印响应数据
+    print(f"[DEBUG] Session {session_id} - repayments count: {len(repayment_details)}")
+    print(f"[DEBUG] Response repayments: {len(response.repayments)}")
+    
+    return response
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    删除指定的房间使用记录
+    
+    功能说明：
+    - 删除指定的房间使用记录（必须是已结算状态）
+    - 回滚所有相关的财务数据（客户余额、库存等）
+    - 删除所有关联记录（客户关联、借款、还款、商品消费、餐费记录、房间转移记录）
+    - 删除房间使用记录本身
+    - 更新房间状态为idle（如果删除的是最后一次记录）
+    """
+    # 查找房间使用记录
+    session = db.query(RoomSession).filter(RoomSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="房间使用记录不存在")
+    
+    # 只允许删除已结算的记录
+    if session.status != "settled":
+        raise HTTPException(status_code=400, detail="只能删除已结算的使用记录")
+    
+    room_id = session.room_id
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    try:
+        # 1. 回滚客户余额（处理借款和还款）
+        # 获取所有借款记录
+        loans = db.query(CustomerLoan).filter(
+            CustomerLoan.session_id == session_id
+        ).all()
+        for loan in loans:
+            customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+            if customer:
+                # 借款时减少了balance（增加欠款），删除时需要增加balance（减少欠款）
+                customer.balance = customer.balance + loan.amount
+                # 恢复借款记录状态
+                loan.status = "active"
+                loan.remaining_amount = loan.amount
+        
+        # 获取所有还款记录
+        repayments = db.query(CustomerRepayment).filter(
+            CustomerRepayment.session_id == session_id
+        ).all()
+        for repayment in repayments:
+            customer = db.query(Customer).filter(Customer.id == repayment.customer_id).first()
+            if customer:
+                # 还款时增加了balance（减少欠款），删除时需要减少balance（增加欠款）
+                customer.balance = customer.balance - repayment.amount
+                
+                # 如果有关联的借款记录，需要恢复借款状态
+                if repayment.loan_id:
+                    loan = db.query(CustomerLoan).filter(CustomerLoan.id == repayment.loan_id).first()
+                    if loan:
+                        # 恢复借款的剩余金额
+                        loan.remaining_amount = loan.remaining_amount + repayment.amount
+                        # 如果还款金额大于等于借款金额，借款状态恢复为active
+                        if loan.remaining_amount > 0:
+                            loan.status = "active"
+        
+        # 2. 恢复商品库存
+        consumptions = db.query(ProductConsumption).filter(
+            ProductConsumption.session_id == session_id
+        ).all()
+        for consumption in consumptions:
+            product = db.query(Product).filter(Product.id == consumption.product_id).first()
+            if product:
+                # 恢复库存
+                product.stock = product.stock + consumption.quantity
+        
+        # 3. 删除所有关联记录
+        # 删除房间客户关联
+        db.query(RoomCustomer).filter(RoomCustomer.session_id == session_id).delete()
+        
+        # 删除借款记录
+        db.query(CustomerLoan).filter(CustomerLoan.session_id == session_id).delete()
+        
+        # 删除还款记录
+        db.query(CustomerRepayment).filter(CustomerRepayment.session_id == session_id).delete()
+        
+        # 删除商品消费记录
+        db.query(ProductConsumption).filter(ProductConsumption.session_id == session_id).delete()
+        
+        # 删除餐费记录
+        db.query(MealRecord).filter(MealRecord.session_id == session_id).delete()
+        
+        # 删除房间转移记录
+        db.query(RoomTransfer).filter(RoomTransfer.session_id == session_id).delete()
+        
+        # 4. 软删除房间使用记录（设置 deleted_at，保留数据以便恢复）
+        session.deleted_at = datetime.now(timezone.utc)
+        
+        # 5. 更新房间状态为idle（如果删除的是最后一次记录）
+        # 检查是否还有其他进行中的记录（不包括已删除的）
+        active_session = db.query(RoomSession).filter(
+            RoomSession.room_id == room_id,
+            RoomSession.status == "in_progress",
+            RoomSession.deleted_at.is_(None)
+        ).first()
+        
+        if not active_session:
+            room.status = "idle"
+        
+        db.commit()
+        
+        return {
+            "message": f"已删除房间 {room.name} 的使用记录（ID: {session_id}），可以恢复",
+            "deleted_session_id": session_id,
+            "room_id": room_id,
+            "room_name": room.name,
+            "deleted_at": session.deleted_at.isoformat()
+        }
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+
+
+@router.post("/sessions/{session_id}/restore")
+def restore_session(
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    恢复已删除的房间使用记录
+    
+    功能说明：
+    - 恢复已删除的房间使用记录（清除 deleted_at）
+    - 恢复所有相关的财务数据（客户余额、库存等）
+    - 恢复所有关联记录（客户关联、借款、还款、商品消费、餐费记录、房间转移记录）
+    """
+    # 查找已删除的房间使用记录
+    session = db.query(RoomSession).filter(
+        RoomSession.id == session_id,
+        RoomSession.deleted_at.isnot(None)
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="房间使用记录不存在或未被删除")
+    
+    room_id = session.room_id
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    try:
+        # 1. 恢复客户余额（处理借款和还款）
+        # 获取所有借款记录
+        loans = db.query(CustomerLoan).filter(
+            CustomerLoan.session_id == session_id
+        ).all()
+        for loan in loans:
+            customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+            if customer:
+                # 恢复借款对客户余额的影响（减少balance，增加欠款）
+                customer.balance = customer.balance - loan.amount
+        
+        # 获取所有还款记录
+        repayments = db.query(CustomerRepayment).filter(
+            CustomerRepayment.session_id == session_id
+        ).all()
+        for repayment in repayments:
+            customer = db.query(Customer).filter(Customer.id == repayment.customer_id).first()
+            if customer:
+                # 恢复还款对客户余额的影响（增加balance，减少欠款）
+                customer.balance = customer.balance + repayment.amount
+                
+                # 如果有关联的借款记录，需要更新借款状态
+                if repayment.loan_id:
+                    loan = db.query(CustomerLoan).filter(CustomerLoan.id == repayment.loan_id).first()
+                    if loan:
+                        # 更新借款的剩余金额
+                        loan.remaining_amount = loan.remaining_amount - repayment.amount
+                        # 如果还款金额大于等于借款金额，借款状态更新为repaid
+                        if loan.remaining_amount <= 0:
+                            loan.status = "repaid"
+        
+        # 2. 恢复商品库存（减少库存）
+        consumptions = db.query(ProductConsumption).filter(
+            ProductConsumption.session_id == session_id
+        ).all()
+        for consumption in consumptions:
+            product = db.query(Product).filter(Product.id == consumption.product_id).first()
+            if product:
+                # 减少库存
+                product.stock = product.stock - consumption.quantity
+        
+        # 3. 恢复房间使用记录（清除 deleted_at）
+        session.deleted_at = None
+        
+        # 4. 更新房间状态（如果房间当前是idle，且恢复的记录是进行中，则更新为in_use）
+        if session.status == "in_progress":
+            room.status = "in_use"
+        
+        db.commit()
+        
+        return {
+            "message": f"已恢复房间 {room.name} 的使用记录（ID: {session_id}）",
+            "restored_session_id": session_id,
+            "room_id": room_id,
+            "room_name": room.name
+        }
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"恢复失败: {str(e)}")
+
+
+@router.delete("/{room_id}/last-session")
+def delete_last_session(
+    room_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    删除指定房间的最后一次已结算使用记录
+    
+    功能说明：
+    - 找到指定房间的最后一次已结算记录（按结束时间倒序，取第一条）
+    - 回滚所有相关的财务数据（客户余额、库存等）
+    - 删除所有关联记录（客户关联、借款、还款、商品消费、餐费记录、房间转移记录）
+    - 删除房间使用记录本身
+    - 更新房间状态为idle（如果删除的是最后一次记录）
+    """
+    # 检查房间是否存在
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    
+    # 查找最后一次已结算的记录（按结束时间倒序，取第一条）
+    session = db.query(RoomSession).filter(
+        RoomSession.room_id == room_id,
+        RoomSession.status == "settled"
+    ).order_by(RoomSession.end_time.desc()).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="该房间没有已结算的使用记录")
+    
+    session_id = session.id
+    
+    try:
+        # 1. 回滚客户余额（处理借款和还款）
+        # 获取所有借款记录
+        loans = db.query(CustomerLoan).filter(
+            CustomerLoan.session_id == session_id
+        ).all()
+        for loan in loans:
+            customer = db.query(Customer).filter(Customer.id == loan.customer_id).first()
+            if customer:
+                # 借款时减少了balance（增加欠款），删除时需要增加balance（减少欠款）
+                customer.balance = customer.balance + loan.amount
+                # 恢复借款记录状态
+                loan.status = "active"
+                loan.remaining_amount = loan.amount
+        
+        # 获取所有还款记录
+        repayments = db.query(CustomerRepayment).filter(
+            CustomerRepayment.session_id == session_id
+        ).all()
+        for repayment in repayments:
+            customer = db.query(Customer).filter(Customer.id == repayment.customer_id).first()
+            if customer:
+                # 还款时增加了balance（减少欠款），删除时需要减少balance（增加欠款）
+                customer.balance = customer.balance - repayment.amount
+                
+                # 如果有关联的借款记录，需要恢复借款状态
+                if repayment.loan_id:
+                    loan = db.query(CustomerLoan).filter(CustomerLoan.id == repayment.loan_id).first()
+                    if loan:
+                        # 恢复借款的剩余金额
+                        loan.remaining_amount = loan.remaining_amount + repayment.amount
+                        # 如果还款金额大于等于借款金额，借款状态恢复为active
+                        if loan.remaining_amount > 0:
+                            loan.status = "active"
+        
+        # 2. 恢复商品库存
+        consumptions = db.query(ProductConsumption).filter(
+            ProductConsumption.session_id == session_id
+        ).all()
+        for consumption in consumptions:
+            product = db.query(Product).filter(Product.id == consumption.product_id).first()
+            if product:
+                # 恢复库存
+                product.stock = product.stock + consumption.quantity
+        
+        # 3. 删除所有关联记录
+        # 删除房间客户关联
+        db.query(RoomCustomer).filter(RoomCustomer.session_id == session_id).delete()
+        
+        # 删除借款记录
+        db.query(CustomerLoan).filter(CustomerLoan.session_id == session_id).delete()
+        
+        # 删除还款记录
+        db.query(CustomerRepayment).filter(CustomerRepayment.session_id == session_id).delete()
+        
+        # 删除商品消费记录
+        db.query(ProductConsumption).filter(ProductConsumption.session_id == session_id).delete()
+        
+        # 删除餐费记录
+        db.query(MealRecord).filter(MealRecord.session_id == session_id).delete()
+        
+        # 删除房间转移记录
+        db.query(RoomTransfer).filter(RoomTransfer.session_id == session_id).delete()
+        
+        # 4. 删除房间使用记录本身
+        db.delete(session)
+        
+        # 5. 更新房间状态为idle（如果删除的是最后一次记录）
+        # 检查是否还有其他进行中的记录
+        active_session = db.query(RoomSession).filter(
+            RoomSession.room_id == room_id,
+            RoomSession.status == "in_progress"
+        ).first()
+        
+        if not active_session:
+            room.status = "idle"
+        
+        db.commit()
+        
+        return {
+            "message": f"已删除房间 {room.name} 的最后一次使用记录（ID: {session_id}）",
+            "deleted_session_id": session_id,
+            "room_id": room_id,
+            "room_name": room.name
+        }
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
 

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API连接测试</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        #result { margin-top: 20px; padding: 10px; border: 1px solid #ccc; background: #f5f5f5; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>后端API连接测试</h1>
+    <p>如果这些测试都通过，说明后端服务正常，问题在浏览器缓存或前端代码。</p>
+    
+    <button onclick="testHealth()">1. 测试健康检查</button>
+    <button onclick="testLogin()">2. 测试登录接口</button>
+    <button onclick="testCORS()">3. 测试CORS</button>
+    
+    <div id="result"></div>
+    
+    <script>
+        const API_BASE = 'http://localhost:8087';
+        const resultDiv = document.getElementById('result');
+        
+        function log(message, isError = false) {
+            const p = document.createElement('p');
+            p.className = isError ? 'error' : 'success';
+            p.textContent = message;
+            resultDiv.appendChild(p);
+        }
+        
+        async function testHealth() {
+            resultDiv.innerHTML = '<h3>测试健康检查...</h3>';
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                log(`✅ 健康检查成功: ${JSON.stringify(data)}`);
+            } catch (error) {
+                log(`❌ 健康检查失败: ${error.message}`, true);
+            }
+        }
+        
+        async function testLogin() {
+            resultDiv.innerHTML += '<h3>测试登录接口...</h3>';
+            try {
+                const response = await fetch(`${API_BASE}/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: 'test',
+                        password: 'test'
+                    })
+                });
+                const data = await response.json();
+                log(`✅ 登录测试成功: ${JSON.stringify(data)}`);
+            } catch (error) {
+                log(`❌ 登录测试失败: ${error.message}`, true);
+            }
+        }
+        
+        async function testCORS() {
+            resultDiv.innerHTML += '<h3>测试CORS...</h3>';
+            try {
+                const response = await fetch(`${API_BASE}/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Origin': 'http://localhost:88'
+                    }
+                });
+                const corsHeader = response.headers.get('Access-Control-Allow-Origin');
+                log(`✅ CORS测试成功: Access-Control-Allow-Origin = ${corsHeader}`);
+            } catch (error) {
+                log(`❌ CORS测试失败: ${error.message}`, true);
+            }
+        }
+    </script>
+</body>
+</html>

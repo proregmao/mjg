@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>借款还款记录表改进方案对比</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            padding-left: 10px;
+            border-left: 4px solid #3498db;
+        }
+        h3 {
+            color: #555;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+        .summary-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .summary-box span {
+            margin: 0 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .type-loan {
+            background: #fff3e0;
+            color: #e65100;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .type-repayment {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .amount-loan {
+            color: #c62828;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .amount-repayment {
+            color: #2e7d32;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .balance-negative {
+            color: #c62828;
+            font-weight: bold;
+        }
+        .balance-positive {
+            color: #2e7d32;
+            font-weight: bold;
+        }
+        .balance-tip {
+            font-size: 12px;
+            color: #999;
+            margin-left: 4px;
+        }
+        .payment-tag {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .payment-none {
+            color: #999;
+        }
+        .arrow-down {
+            color: #c62828;
+            font-size: 12px;
+        }
+        .arrow-up {
+            color: #2e7d32;
+            font-size: 12px;
+        }
+        .problem-list {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .problem-list ul {
+            margin-left: 20px;
+        }
+        .improvement-list {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .improvement-list ul {
+            margin-left: 20px;
+        }
+        .comparison-table {
+            margin-top: 30px;
+        }
+        .comparison-table th {
+            background: #34495e;
+        }
+        .recommend-badge {
+            background: #28a745;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .section {
+            margin-bottom: 50px;
+            padding: 20px;
+            background: #fafafa;
+            border-radius: 8px;
+        }
+        .time-cell {
+            font-size: 13px;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 借款还款记录表改进方案对比</h1>
+
+        <!-- 当前方案 -->
+        <div class="section">
+            <h2>1. 当前方案展示</h2>
+            <div class="problem-list">
+                <strong>存在的问题：</strong>
+                <ul>
+                    <li>金额显示负数，不够直观</li>
+                    <li>说明字段过于技术化（包含"关联借款ID"等）</li>
+                    <li>支付方式借款时显示"-"容易误解</li>
+                    <li>缺少汇总信息</li>
+                </ul>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>序号</th>
+                        <th>类型</th>
+                        <th>金额</th>
+                        <th>余额</th>
+                        <th>支付方式</th>
+                        <th>说明</th>
+                        <th>时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td><span class="type-loan">借款</span></td>
+                        <td class="amount-loan">¥-3,000.00</td>
+                        <td class="balance-negative">¥-8,290.00 <span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">-</td>
+                        <td>向麻将馆借款-剩余未还:¥3000.00 -正常</td>
+                        <td>2025-12-10 22:14:41</td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td><span class="type-loan">借款</span></td>
+                        <td class="amount-loan">¥-3,000.00</td>
+                        <td class="balance-negative">¥-11,290.00 <span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">-</td>
+                        <td>向麻将馆借款-剩余未还:¥3000.00 -正常</td>
+                        <td>2025-12-10 22:28:37</td>
+                    </tr>
+                    <tr>
+                        <td>3</td>
+                        <td><span class="type-repayment">还款</span></td>
+                        <td class="amount-repayment">¥-2,500.00</td>
+                        <td class="balance-negative">¥-13,790.00 <span class="balance-tip">(欠款)</span></td>
+                        <td><span class="payment-tag">现金</span></td>
+                        <td>还款-还总欠款(现金)</td>
+                        <td>2025-12-10 22:38:24</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 方案一 -->
+        <div class="section">
+            <h2>2. 方案一：优化显示方式</h2>
+            <div class="improvement-list">
+                <strong>改进点：</strong>
+                <ul>
+                    <li>✅ 金额显示为"借出/收回 +金额"，更直观</li>
+                    <li>✅ 说明字段简化，移除技术信息</li>
+                    <li>✅ 支付方式借款时显示"不适用"，更清晰</li>
+                    <li>✅ 添加图标增强视觉效果</li>
+                </ul>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>序号</th>
+                        <th>类型</th>
+                        <th>金额</th>
+                        <th>余额</th>
+                        <th>支付方式</th>
+                        <th>说明</th>
+                        <th>时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td><span class="type-loan">💰 借款</span></td>
+                        <td class="amount-loan">借出 ¥3,000.00</td>
+                        <td class="balance-negative">¥-8,290.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">不适用</td>
+                        <td>向麻将馆借款</td>
+                        <td>2025-12-10 22:14:41</td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td><span class="type-loan">💰 借款</span></td>
+                        <td class="amount-loan">借出 ¥3,000.00</td>
+                        <td class="balance-negative">¥-11,290.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">不适用</td>
+                        <td>向麻将馆借款</td>
+                        <td>2025-12-10 22:28:37</td>
+                    </tr>
+                    <tr>
+                        <td>3</td>
+                        <td><span class="type-repayment">✅ 还款</span></td>
+                        <td class="amount-repayment">收回 ¥2,500.00</td>
+                        <td class="balance-negative">¥-13,790.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td><span class="payment-tag">现金</span></td>
+                        <td>还款（现金）</td>
+                        <td>2025-12-10 22:38:24</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 方案二 -->
+        <div class="section">
+            <h2>3. 方案二：重新设计表格结构</h2>
+            <div class="improvement-list">
+                <strong>改进点：</strong>
+                <ul>
+                    <li>✅ 时间列放在最前面，符合阅读习惯</li>
+                    <li>✅ 添加汇总信息，一目了然</li>
+                    <li>✅ 金额显示正数，用箭头和文字说明方向</li>
+                    <li>✅ 余额显示更紧凑</li>
+                </ul>
+            </div>
+            <div class="summary-box">
+                📊 账户汇总：累计借款：¥6,000.00  |  累计还款：¥2,500.00  |  当前欠款：¥13,790.00
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>类型</th>
+                        <th>金额</th>
+                        <th>余额</th>
+                        <th>支付方式</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="time-cell">2025-12-10<br/>22:14:41</td>
+                        <td><span class="type-loan">借款</span></td>
+                        <td class="amount-loan">¥3,000.00<br/><span class="arrow-down">↓ 借出</span></td>
+                        <td class="balance-negative">¥-8,290.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">-</td>
+                        <td>向麻将馆借款</td>
+                    </tr>
+                    <tr>
+                        <td class="time-cell">2025-12-10<br/>22:28:37</td>
+                        <td><span class="type-loan">借款</span></td>
+                        <td class="amount-loan">¥3,000.00<br/><span class="arrow-down">↓ 借出</span></td>
+                        <td class="balance-negative">¥-11,290.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">-</td>
+                        <td>向麻将馆借款</td>
+                    </tr>
+                    <tr>
+                        <td class="time-cell">2025-12-10<br/>22:38:24</td>
+                        <td><span class="type-repayment">还款</span></td>
+                        <td class="amount-repayment">¥2,500.00<br/><span class="arrow-up">↑ 收回</span></td>
+                        <td class="balance-negative">¥-13,790.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td><span class="payment-tag">现金</span></td>
+                        <td>还款（现金）</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 方案三 -->
+        <div class="section">
+            <h2>4. 方案三：增强视觉效果</h2>
+            <div class="improvement-list">
+                <strong>改进点：</strong>
+                <ul>
+                    <li>✅ 使用背景色区分类型（橙色/绿色）</li>
+                    <li>✅ 金额使用更大字体和背景色突出</li>
+                    <li>✅ 支付方式使用标签样式</li>
+                    <li>✅ 时间分行显示，更易读</li>
+                </ul>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>序号</th>
+                        <th>类型</th>
+                        <th>金额</th>
+                        <th>余额</th>
+                        <th>支付方式</th>
+                        <th>说明</th>
+                        <th>时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td><span class="type-loan">💰 借款</span></td>
+                        <td><span class="amount-loan" style="background: #ffebee; padding: 4px 8px; border-radius: 4px; display: inline-block;">¥3,000.00</span><br/><span class="arrow-down">↓ 借出</span></td>
+                        <td><span class="balance-negative" style="background: #ffebee; padding: 4px 8px; border-radius: 4px; display: inline-block;">¥-8,290.00</span><br/><span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">-</td>
+                        <td>向麻将馆借款</td>
+                        <td class="time-cell">2025-12-10<br/>22:14:41</td>
+                    </tr>
+                    <tr>
+                        <td>2</td>
+                        <td><span class="type-loan">💰 借款</span></td>
+                        <td><span class="amount-loan" style="background: #ffebee; padding: 4px 8px; border-radius: 4px; display: inline-block;">¥3,000.00</span><br/><span class="arrow-down">↓ 借出</span></td>
+                        <td><span class="balance-negative" style="background: #ffebee; padding: 4px 8px; border-radius: 4px; display: inline-block;">¥-11,290.00</span><br/><span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">-</td>
+                        <td>向麻将馆借款</td>
+                        <td class="time-cell">2025-12-10<br/>22:28:37</td>
+                    </tr>
+                    <tr>
+                        <td>3</td>
+                        <td><span class="type-repayment">✅ 还款</span></td>
+                        <td><span class="amount-repayment" style="background: #e8f5e9; padding: 4px 8px; border-radius: 4px; display: inline-block;">¥2,500.00</span><br/><span class="arrow-up">↑ 收回</span></td>
+                        <td><span class="balance-negative" style="background: #ffebee; padding: 4px 8px; border-radius: 4px; display: inline-block;">¥-13,790.00</span><br/><span class="balance-tip">(欠款)</span></td>
+                        <td><span class="payment-tag">现金</span></td>
+                        <td>还款（现金）</td>
+                        <td class="time-cell">2025-12-10<br/>22:38:24</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 推荐方案 -->
+        <div class="section">
+            <h2>5. 推荐方案：结合方案一和方案二 <span class="recommend-badge">推荐</span></h2>
+            <div class="improvement-list">
+                <strong>改进点：</strong>
+                <ul>
+                    <li>✅ <strong>汇总信息</strong>：表格上方显示累计借款、累计还款、当前欠款</li>
+                    <li>✅ <strong>时间优先</strong>：时间列放在最前面，符合阅读习惯</li>
+                    <li>✅ <strong>金额优化</strong>：显示为"借出/收回 +金额"，用颜色区分</li>
+                    <li>✅ <strong>说明简化</strong>：移除技术性信息，只保留核心内容</li>
+                    <li>✅ <strong>支付方式</strong>：借款显示"-"，还款显示具体方式</li>
+                    <li>✅ <strong>视觉增强</strong>：使用图标和颜色，但不至于过于花哨</li>
+                </ul>
+            </div>
+            <div class="summary-box">
+                📊 账户汇总：累计借款：¥6,000.00  |  累计还款：¥2,500.00  |  当前欠款：¥13,790.00
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>类型</th>
+                        <th>金额</th>
+                        <th>余额</th>
+                        <th>支付方式</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="time-cell">2025-12-10<br/>22:14:41</td>
+                        <td><span class="type-loan">💰 借款</span></td>
+                        <td class="amount-loan">借出 ¥3,000.00</td>
+                        <td class="balance-negative">¥-8,290.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">-</td>
+                        <td>向麻将馆借款</td>
+                    </tr>
+                    <tr>
+                        <td class="time-cell">2025-12-10<br/>22:28:37</td>
+                        <td><span class="type-loan">💰 借款</span></td>
+                        <td class="amount-loan">借出 ¥3,000.00</td>
+                        <td class="balance-negative">¥-11,290.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td class="payment-none">-</td>
+                        <td>向麻将馆借款</td>
+                    </tr>
+                    <tr>
+                        <td class="time-cell">2025-12-10<br/>22:38:24</td>
+                        <td><span class="type-repayment">✅ 还款</span></td>
+                        <td class="amount-repayment">收回 ¥2,500.00</td>
+                        <td class="balance-negative">¥-13,790.00<br/><span class="balance-tip">(欠款)</span></td>
+                        <td><span class="payment-tag">现金</span></td>
+                        <td>还款（现金）</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 方案对比总结 -->
+        <div class="section">
+            <h2>6. 方案对比总结</h2>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>方案</th>
+                        <th>优点</th>
+                        <th>缺点</th>
+                        <th>适用场景</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>当前方案</strong></td>
+                        <td>信息完整</td>
+                        <td>不够直观，技术化</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>方案一</strong></td>
+                        <td>显示优化，易理解</td>
+                        <td>缺少汇总信息</td>
+                        <td>简单优化</td>
+                    </tr>
+                    <tr>
+                        <td><strong>方案二</strong></td>
+                        <td>有汇总，列顺序合理</td>
+                        <td>视觉区分不够强</td>
+                        <td>注重信息结构</td>
+                    </tr>
+                    <tr>
+                        <td><strong>方案三</strong></td>
+                        <td>视觉效果好</td>
+                        <td>可能过于花哨</td>
+                        <td>需要强视觉区分</td>
+                    </tr>
+                    <tr style="background: #e8f5e9;">
+                        <td><strong>推荐方案</strong> <span class="recommend-badge">推荐</span></td>
+                        <td>平衡实用性和视觉效果</td>
+                        <td>实现稍复杂</td>
+                        <td><strong>最佳选择</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 建议 -->
+        <div class="section">
+            <h2>7. 建议</h2>
+            <div class="improvement-list">
+                <p><strong>推荐使用"推荐方案"</strong>，因为：</p>
+                <ul>
+                    <li>✅ 既优化了显示方式，又添加了汇总信息</li>
+                    <li>✅ 保持了表格的简洁性，不会过于花哨</li>
+                    <li>✅ 信息结构清晰，易于理解</li>
+                    <li>✅ 符合用户阅读习惯（时间优先）</li>
+                </ul>
+                <p style="margin-top: 15px;">
+                    如果需要进一步简化，可以选择<strong>方案一</strong>；如果需要更强的视觉效果，可以在推荐方案基础上增加方案三的元素。
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+

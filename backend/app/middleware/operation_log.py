@@ -57,6 +57,10 @@ class OperationLogMiddleware(BaseHTTPMiddleware):
         """处理请求并记录日志"""
         start_time = time.time()
         
+        # 跳过OPTIONS预检请求（CORS预检请求）
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        
         # 检查是否需要记录日志
         if request.url.path in self.EXCLUDED_PATHS:
             return await call_next(request)

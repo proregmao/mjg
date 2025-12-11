@@ -64,10 +64,13 @@ def get_daily_statistics(
     room_details_dict = {}
     
     for session in sessions:
-        total_revenue += session.total_revenue or Decimal("0")
+        # 注意：total_revenue 只计算台子费总额，因为台子费已包含商品消费和餐费
+        # 不重复计算商品收入和餐费收入
         total_cost += session.total_cost or Decimal("0")
         table_fee = session.table_fee or Decimal("0")
         table_fee_total += table_fee
+        # 今日收入 = 台子费总额（台子费已包含商品消费和餐费）
+        total_revenue += table_fee
         room_ids.add(session.room_id)
         
         # 统计房间详情
@@ -343,15 +346,18 @@ def get_monthly_statistics(
                 "room_ids": set()
             }
         
-        daily_stats_dict[session_date]["revenue"] += session.total_revenue or Decimal("0")
+        # 注意：revenue 只计算台子费，因为台子费已包含商品消费和餐费
+        table_fee = session.table_fee or Decimal("0")
+        daily_stats_dict[session_date]["revenue"] += table_fee
         daily_stats_dict[session_date]["cost"] += session.total_cost or Decimal("0")
-        daily_stats_dict[session_date]["table_fee"] += session.table_fee or Decimal("0")
+        daily_stats_dict[session_date]["table_fee"] += table_fee
         daily_stats_dict[session_date]["session_count"] += 1
         daily_stats_dict[session_date]["room_ids"].add(session.room_id)
         
-        total_revenue += session.total_revenue or Decimal("0")
+        # 今日收入 = 台子费总额（台子费已包含商品消费和餐费）
+        total_revenue += table_fee
         total_cost += session.total_cost or Decimal("0")
-        table_fee_total += session.table_fee or Decimal("0")
+        table_fee_total += table_fee
         room_ids.add(session.room_id)
         
         # 查询商品消费
@@ -483,9 +489,10 @@ def get_monthly_statistics(
             for expense in other_expenses if expense.expense_date.date() == stat_date
         ]
         
+        # 注意：total_revenue 只计算台子费总额，因为台子费已包含商品消费和餐费
         daily_statistics.append(DailyStatisticsResponse(
             date=stat_date,
-            total_revenue=stats["revenue"],
+            total_revenue=stats["table_fee"],  # 使用台子费作为收入，因为台子费已包含商品消费和餐费
             total_cost=stats["cost"],
             total_profit=daily_profit,
             other_income=daily_other_income,
@@ -684,7 +691,9 @@ def get_room_usage(
                 hours = Decimal(str(duration.total_seconds() / 3600))
                 total_hours += hours
             
-            total_revenue += session.total_revenue or Decimal("0")
+            # 注意：total_revenue 只计算台子费，因为台子费已包含商品消费和餐费
+            table_fee = session.table_fee or Decimal("0")
+            total_revenue += table_fee
             total_profit += session.total_profit or Decimal("0")
         
         if session_count > 0:
