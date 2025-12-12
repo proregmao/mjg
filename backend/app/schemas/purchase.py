@@ -86,3 +86,4 @@ class PurchaseResponse(PurchaseBase):
             return None
         return format_datetime_local(dt)
 
+

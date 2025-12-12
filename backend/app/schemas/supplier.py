@@ -59,3 +59,4 @@ class SupplierResponse(SupplierBase):
             return None
         return format_datetime_local(dt)
 
+

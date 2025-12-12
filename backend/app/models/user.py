@@ -26,3 +26,4 @@ class User(Base):
         Index("idx_users_email", "email"),
     )
 
+

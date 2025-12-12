@@ -109,3 +109,4 @@ def delete_supplier(supplier_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "供货商已删除"}
 
+

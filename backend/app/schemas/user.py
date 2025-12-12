@@ -64,3 +64,4 @@ class UserBatchDelete(BaseModel):
     """批量删除用户模型"""
     ids: list[int] = Field(..., description="要删除的用户ID列表")
 
+

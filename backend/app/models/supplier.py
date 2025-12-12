@@ -29,3 +29,4 @@ class Supplier(Base):
         Index("idx_suppliers_phone", "phone"),
     )
 
+
