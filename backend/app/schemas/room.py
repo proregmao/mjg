@@ -129,6 +129,16 @@ class SetTableFeeRequest(BaseModel):
     payment_method: Optional[str] = Field("现金", description="支付方式：现金、微信、支付宝、转账，默认为现金")
 
 
+class UpdateProductConsumptionRequest(BaseModel):
+    """更新商品消费请求"""
+    quantity: int = Field(..., gt=0, description="数量")
+
+
+class UpdateMealRecordRequest(BaseModel):
+    """更新餐费记录请求"""
+    amount: Decimal = Field(..., gt=0, description="餐费金额")
+
+
 
 
 

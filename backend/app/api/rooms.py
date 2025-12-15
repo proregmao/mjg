@@ -22,7 +22,8 @@ from app.schemas.room import (
     RoomCreate, RoomUpdate, RoomResponse, RoomSessionResponse,
     StartSessionRequest, AddCustomerRequest, RecordLoanRequest,
     RecordRepaymentRequest, RecordProductRequest, RecordMealRequest, 
-    TransferRoomRequest, SetTableFeeRequest
+    TransferRoomRequest, SetTableFeeRequest,
+    UpdateProductConsumptionRequest, UpdateMealRecordRequest
 )
 from app.schemas.room_detail import RoomSessionDetailResponse
 
@@ -517,6 +518,175 @@ def record_meal(
     db.commit()
     db.refresh(meal_record)
     return {"message": "餐费已记录", "meal_record_id": meal_record.id}
+
+
+@router.put("/sessions/{session_id}/product/{consumption_id}")
+def update_product_consumption(
+    session_id: int,
+    consumption_id: int,
+    request: UpdateProductConsumptionRequest,
+    db: Session = Depends(get_db)
+):
+    """更新商品消费数量"""
+    session = db.query(RoomSession).filter(RoomSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="房间使用记录不存在")
+    
+    consumption = db.query(ProductConsumption).filter(
+        ProductConsumption.id == consumption_id,
+        ProductConsumption.session_id == session_id
+    ).first()
+    if not consumption:
+        raise HTTPException(status_code=404, detail="商品消费记录不存在")
+    
+    try:
+        # 获取商品信息
+        product = db.query(Product).filter(Product.id == consumption.product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="商品不存在")
+        
+        # 计算数量差异
+        quantity_diff = request.quantity - consumption.quantity
+        
+        # 更新库存（如果数量增加，减少库存；如果数量减少，增加库存）
+        product.stock = product.stock - quantity_diff
+        
+        # 回滚旧的收入和成本
+        session.total_revenue = session.total_revenue - consumption.total_price
+        session.total_cost = session.total_cost - consumption.total_cost
+        
+        # 计算新的总价和总成本
+        new_total_price = product.price * request.quantity
+        new_total_cost = product.cost_price * request.quantity
+        
+        # 更新消费记录
+        consumption.quantity = request.quantity
+        consumption.total_price = new_total_price
+        consumption.total_cost = new_total_cost
+        
+        # 更新房间使用记录的收入和成本
+        session.total_revenue = session.total_revenue + new_total_price
+        session.total_cost = session.total_cost + new_total_cost
+        
+        db.commit()
+        db.refresh(consumption)
+        return {"message": "商品消费记录已更新", "consumption_id": consumption.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
+
+
+@router.delete("/sessions/{session_id}/product/{consumption_id}")
+def delete_product_consumption(
+    session_id: int,
+    consumption_id: int,
+    db: Session = Depends(get_db)
+):
+    """删除商品消费记录"""
+    session = db.query(RoomSession).filter(RoomSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="房间使用记录不存在")
+    
+    consumption = db.query(ProductConsumption).filter(
+        ProductConsumption.id == consumption_id,
+        ProductConsumption.session_id == session_id
+    ).first()
+    if not consumption:
+        raise HTTPException(status_code=404, detail="商品消费记录不存在")
+    
+    try:
+        # 获取商品信息
+        product = db.query(Product).filter(Product.id == consumption.product_id).first()
+        if product:
+            # 恢复库存
+            product.stock = product.stock + consumption.quantity
+        
+        # 回滚房间使用记录的收入和成本
+        session.total_revenue = session.total_revenue - consumption.total_price
+        session.total_cost = session.total_cost - consumption.total_cost
+        
+        # 删除消费记录
+        db.delete(consumption)
+        
+        db.commit()
+        return {"message": "商品消费记录已删除"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+
+
+@router.put("/sessions/{session_id}/meal/{meal_record_id}")
+def update_meal_record(
+    session_id: int,
+    meal_record_id: int,
+    request: UpdateMealRecordRequest,
+    db: Session = Depends(get_db)
+):
+    """更新餐费金额"""
+    session = db.query(RoomSession).filter(RoomSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="房间使用记录不存在")
+    
+    meal_record = db.query(MealRecord).filter(
+        MealRecord.id == meal_record_id,
+        MealRecord.session_id == session_id
+    ).first()
+    if not meal_record:
+        raise HTTPException(status_code=404, detail="餐费记录不存在")
+    
+    try:
+        # 回滚旧的收入和成本（餐费的成本等于餐费金额本身）
+        session.total_revenue = session.total_revenue - meal_record.amount
+        session.total_cost = session.total_cost - meal_record.amount
+        
+        # 更新餐费记录
+        meal_record.amount = request.amount
+        meal_record.cost_price = request.amount  # 餐费成本 = 餐费金额
+        
+        # 更新房间使用记录的收入和成本
+        session.total_revenue = session.total_revenue + request.amount
+        session.total_cost = session.total_cost + request.amount
+        
+        db.commit()
+        db.refresh(meal_record)
+        return {"message": "餐费记录已更新", "meal_record_id": meal_record.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
+
+
+@router.delete("/sessions/{session_id}/meal/{meal_record_id}")
+def delete_meal_record(
+    session_id: int,
+    meal_record_id: int,
+    db: Session = Depends(get_db)
+):
+    """删除餐费记录"""
+    session = db.query(RoomSession).filter(RoomSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="房间使用记录不存在")
+    
+    meal_record = db.query(MealRecord).filter(
+        MealRecord.id == meal_record_id,
+        MealRecord.session_id == session_id
+    ).first()
+    if not meal_record:
+        raise HTTPException(status_code=404, detail="餐费记录不存在")
+    
+    try:
+        # 回滚房间使用记录的收入和成本
+        # 餐费的成本等于餐费金额本身
+        session.total_revenue = session.total_revenue - meal_record.amount
+        session.total_cost = session.total_cost - meal_record.amount
+        
+        # 删除餐费记录
+        db.delete(meal_record)
+        
+        db.commit()
+        return {"message": "餐费记录已删除"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
 
 
 @router.post("/sessions/{session_id}/transfer-room")
