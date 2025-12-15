@@ -263,6 +263,23 @@ def get_payment_statistics(
         # 从银行取现增加现金余额，但不产生利润，所以不统计在breakdown中
         cash_total += transfer.amount
     
+    # 统计存入银行/取现（减少现金，但不产生利润，所以不统计在breakdown中）
+    if date_filter:
+        cash_to_bank_query = db.query(CashTransfer).filter(CashTransfer.transfer_type == "cash_to_bank")
+        if start_datetime:
+            cash_to_bank_query = cash_to_bank_query.filter(CashTransfer.transfer_date >= start_datetime)
+        if end_datetime:
+            cash_to_bank_query = cash_to_bank_query.filter(CashTransfer.transfer_date <= end_datetime)
+        cash_to_bank_transfers = cash_to_bank_query.all()
+    else:
+        cash_to_bank_transfers = db.query(CashTransfer).filter(CashTransfer.transfer_type == "cash_to_bank").all()
+    
+    for transfer in cash_to_bank_transfers:
+        if date_filter and not date_filter(transfer.transfer_date):
+            continue
+        # 存入银行/取现减少现金余额，但不产生利润，所以不统计在breakdown中
+        cash_total -= transfer.amount
+    
     # 格式化日期范围
     if start_date and end_date:
         date_range = f"{start_date} 至 {end_date}"
@@ -296,7 +313,7 @@ class CashFlowItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     
     id: int = Field(..., description="记录ID")
-    type: str = Field(..., description="类型：loan=借款, repayment=还款, room_income=房间收入, other_income=其它收入, other_expense=其它支出, bank_to_cash=从银行取现")
+    type: str = Field(..., description="类型：loan=借款, repayment=还款, room_income=房间收入, other_income=其它收入, other_expense=其它支出, bank_to_cash=从银行取现, cash_to_bank=存入银行/取现")
     amount: Decimal = Field(..., description="金额（正数表示增加，负数表示减少）")
     record_datetime: datetime = Field(..., description="时间", alias="datetime")
     description: str = Field(..., description="描述")
@@ -392,6 +409,14 @@ def get_cash_flow(
         ).all()
         for transfer in transfers_before:
             starting_balance += transfer.amount
+        
+        # 存入银行/取现（减少）
+        cash_to_bank_before = db.query(CashTransfer).filter(
+            CashTransfer.transfer_date < start_datetime,
+            CashTransfer.transfer_type == "cash_to_bank"
+        ).all()
+        for transfer in cash_to_bank_before:
+            starting_balance -= transfer.amount
     
     # 1. 获取借款记录（现金支付）
     loans_query = db.query(CustomerLoan).join(Customer, CustomerLoan.customer_id == Customer.id)
@@ -534,6 +559,30 @@ def get_cash_flow(
             transfer_id=transfer.id  # 添加transfer_id用于更新
         ))
     
+    # 7. 获取存入银行/取现记录
+    cash_to_bank_query = db.query(CashTransfer).filter(
+        CashTransfer.transfer_type == "cash_to_bank"
+    )
+    if start_datetime:
+        cash_to_bank_query = cash_to_bank_query.filter(CashTransfer.transfer_date >= start_datetime)
+    if end_datetime:
+        cash_to_bank_query = cash_to_bank_query.filter(CashTransfer.transfer_date <= end_datetime)
+    cash_to_bank_transfers = cash_to_bank_query.all()
+    
+    for transfer in cash_to_bank_transfers:
+        items.append(CashFlowItem(
+            id=transfer.id,
+            type="cash_to_bank",
+            amount=-transfer.amount,  # 存入银行/取现为负数（减少现金）
+            record_datetime=transfer.transfer_date,
+            description=transfer.description or "",  # 直接返回原始描述，不拼接前缀
+            customer_name=None,
+            room_name=None,
+            payment_method="银行转账",
+            cash_balance=Decimal("0"),  # 稍后计算
+            transfer_id=transfer.id  # 添加transfer_id用于更新
+        ))
+    
     # 按时间正序排序（从早到晚），如果时间相同则按ID正序，用于计算余额
     # 这样确保先发生的记录先计算余额
     items.sort(key=lambda x: (x.record_datetime, x.id))
@@ -605,6 +654,62 @@ def create_bank_to_cash(
     
     return {
         "message": "从银行取现记录创建成功",
+        "id": transfer.id,
+        "amount": float(transfer.amount),
+        "transfer_date": transfer.transfer_date.isoformat()
+    }
+
+
+# 创建存入银行/取现记录的请求模型
+class CreateCashToBankRequest(BaseModel):
+    """创建存入银行/取现记录的请求模型"""
+    model_config = ConfigDict(populate_by_name=True)
+    
+    amount: Decimal = Field(..., description="取现金额", gt=0)
+    description: Optional[str] = Field(None, description="备注说明", max_length=500)
+    transfer_date: Optional[str] = Field(None, description="转账日期字符串，格式：YYYY-MM-DD HH:mm:ss，默认为当前时间")
+
+
+@router.post("/cash-to-bank", response_model=dict)
+def create_cash_to_bank(
+    request: CreateCashToBankRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    创建存入银行/取现记录
+    从现金中取出钱存入银行或取走，不产生利润，单纯减少现金
+    """
+    from datetime import datetime, timezone, timedelta
+    
+    # 解析转账日期
+    if request.transfer_date:
+        try:
+            # 解析字符串日期
+            transfer_datetime = datetime.strptime(request.transfer_date, "%Y-%m-%d %H:%M:%S")
+            # 如果没有时区信息，假设是本地时间（UTC+8）
+            if transfer_datetime.tzinfo is None:
+                china_tz = timezone(timedelta(hours=8))
+                transfer_datetime = transfer_datetime.replace(tzinfo=china_tz)
+        except ValueError:
+            # 如果解析失败，使用当前时间
+            transfer_datetime = datetime.now(timezone.utc)
+    else:
+        transfer_datetime = datetime.now(timezone.utc)
+    
+    # 创建转账记录
+    transfer = CashTransfer(
+        transfer_type="cash_to_bank",
+        amount=request.amount,
+        description=request.description or "",
+        transfer_date=transfer_datetime
+    )
+    
+    db.add(transfer)
+    db.commit()
+    db.refresh(transfer)
+    
+    return {
+        "message": "取现记录创建成功",
         "id": transfer.id,
         "amount": float(transfer.amount),
         "transfer_date": transfer.transfer_date.isoformat()
