@@ -20,7 +20,7 @@ class ProductConsumption(Base):
     total_price = Column(Numeric(10, 2), nullable=False, comment="总价")
     cost_price = Column(Numeric(10, 2), nullable=False, comment="成本价")
     total_cost = Column(Numeric(10, 2), nullable=False, comment="总成本")
-    payment_method = Column(String(20), default="现金", comment="支付方式：现金、微信、支付宝、转账")
+    payment_method = Column(String(100), default="现金", comment="支付方式：现金、微信、支付宝、转账")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="创建时间")
 
     # 关系

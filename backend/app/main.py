@@ -1,11 +1,13 @@
 """
 FastAPI主应用入口
 """
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from app.db.database import engine, Base
 import traceback
+import json
 
 # 导入所有模型以确保表被创建
 from app.models import (
@@ -37,6 +39,25 @@ app.add_middleware(
 # 添加操作日志中间件
 from app.middleware.operation_log import OperationLogMiddleware
 app.add_middleware(OperationLogMiddleware)
+
+
+# 全局异常处理
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """处理 422 验证错误，打印详细信息"""
+    print(f"请求验证错误: {request.method} {request.url}")
+    print(f"错误详情: {exc.errors()}")
+    try:
+        body = await request.body()
+        if body:
+            print(f"请求体内容: {body.decode('utf-8')}")
+    except:
+        pass
+        
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors()},
+    )
 
 
 # 全局异常处理

@@ -141,14 +141,25 @@ class ProductSalesItem(BaseModel):
     total_profit: Decimal = Field(..., description="总利润")
 
 
+class WinLossItem(BaseModel):
+    """输赢榜单项"""
+    customer_id: int
+    customer_name: str
+    customer_phone: Optional[str]
+    total_loan: Decimal = Field(..., description="总借款（出账）")
+    total_repayment: Decimal = Field(..., description="总还款（入账）")
+    net_win_loss: Decimal = Field(..., description="净输赢（还款-借款）")
+    session_count: int = Field(..., description="参与场次")
 
+class WinLossSummary(BaseModel):
+    """输赢榜汇总"""
+    total_win: Decimal = Field(..., description="总赢钱（正数之和）")
+    total_loss: Decimal = Field(..., description="总输钱（负数之和）")
+    total_table_fee: Decimal = Field(..., description="时间段内总台费")
 
-
-
-
-
-
-
-
-
-
+class WinLossRankingResponse(BaseModel):
+    """输赢榜响应"""
+    start_date: date
+    end_date: date
+    ranking: List[WinLossItem]
+    summary: WinLossSummary

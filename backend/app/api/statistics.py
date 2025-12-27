@@ -19,11 +19,13 @@ from app.models.room import Room
 from app.models.product import Product
 from app.models.other_expense import OtherExpense
 from app.models.other_income import OtherIncome
+from app.models.session_result import SessionResult
 from app.schemas.statistics import (
     DailyStatisticsResponse, MonthlyStatisticsResponse,
     CustomerRankingItem, RoomUsageItem, ProductSalesItem,
     RoomDetailItem, CostDetailItem, CustomerFinancialItem,
-    TableFeeDetailItem, OtherIncomeDetailItem, OtherExpenseDetailItem
+    TableFeeDetailItem, OtherIncomeDetailItem, OtherExpenseDetailItem,
+    WinLossRankingResponse, WinLossItem, WinLossSummary
 )
 
 router = APIRouter(prefix="/api/statistics", tags=["统计报表"])
@@ -748,4 +750,142 @@ def get_product_sales(
         ))
     
     return sales_items
+
+
+@router.get("/win-loss-ranking", response_model=WinLossRankingResponse)
+def get_win_loss_ranking(
+    start_date: date = Query(..., description="开始日期"),
+    end_date: date = Query(..., description="结束日期"),
+    db: Session = Depends(get_db)
+):
+    """获取客户输赢榜"""
+    # 转换日期为datetime
+    start_datetime = datetime.combine(start_date, datetime.min.time())
+    end_datetime = datetime.combine(end_date, datetime.max.time())
+    
+    # 1. 获取时间段内所有的已结算的session
+    sessions = db.query(RoomSession).filter(
+        and_(
+            RoomSession.start_time >= start_datetime,
+            RoomSession.start_time <= end_datetime,
+            RoomSession.status == "settled"
+        )
+    ).all()
+    
+    session_ids = [s.id for s in sessions]
+    
+    # 2. 计算时间段内总台费
+    total_table_fee = sum(s.table_fee or Decimal("0") for s in sessions)
+
+    # 3. 获取所有客户
+    customers = db.query(Customer).all()
+    
+    # 预取所有相关数据以在内存中处理（避免N+1查询）
+    # 1. 输赢结果
+    session_results = db.query(SessionResult).filter(
+        SessionResult.session_id.in_(session_ids)
+    ).all()
+    
+    # 2. 借款记录
+    loans = db.query(CustomerLoan).filter(
+         CustomerLoan.session_id.in_(session_ids)
+    ).all()
+    
+    # 3. 还款记录
+    repayments = db.query(CustomerRepayment).filter(
+         CustomerRepayment.session_id.in_(session_ids)
+    ).all()
+    
+    # 组织数据： {(session_id, customer_id): {loan: 0, repay: 0, manual: None}}
+    session_customer_map = {}
+    
+    def get_sc_item(s_id, c_id):
+        key = (s_id, c_id)
+        if key not in session_customer_map:
+            session_customer_map[key] = {'loan': Decimal(0), 'repay': Decimal(0), 'manual': None}
+        return session_customer_map[key]
+
+    for l in loans:
+        item = get_sc_item(l.session_id, l.customer_id)
+        item['loan'] += (l.amount or Decimal(0))
+        
+    for r in repayments:
+         item = get_sc_item(r.session_id, r.customer_id)
+         item['repay'] += (r.amount or Decimal(0))
+         
+    for res in session_results:
+        item = get_sc_item(res.session_id, res.customer_id)
+        item['manual'] = res.net_win_loss
+
+    ranking_items = []
+    
+    for customer in customers:
+        total_loan = Decimal(0)
+        total_repayment = Decimal(0)
+        net_win_loss = Decimal(0)
+        involved_sessions = set()
+        
+        # 遍历该客户参与的所有session数据
+        # 这种遍历方式效率稍低，但鉴于customer数量和session数量，通常可接受。
+        # 更优做法是遍历 session_customer_map 聚合到 customer_map，再生成 list
+        
+        # 优化：先聚合
+        # customer_agg = { cust_id: { loan, repay, win_loss, sessions } }
+        pass
+
+    # 由于上面循环重构了，这里直接基于 session_customer_map 聚合
+    customer_agg = {}
+    
+    for (s_id, c_id), data in session_customer_map.items():
+        if c_id not in customer_agg:
+            customer_agg[c_id] = {
+                'loan': Decimal(0), 
+                'repay': Decimal(0), 
+                'win_loss': Decimal(0), 
+                'sessions': set()
+            }
+        
+        # 借还款总额始终累加（用于展示）
+        customer_agg[c_id]['loan'] += data['loan']
+        customer_agg[c_id]['repay'] += data['repay']
+        customer_agg[c_id]['sessions'].add(s_id)
+        
+        # 输赢计算：如果有手动结果，用手动的；否则用 (还 - 借)
+        if data['manual'] is not None:
+            customer_agg[c_id]['win_loss'] += data['manual']
+        else:
+            customer_agg[c_id]['win_loss'] += (data['repay'] - data['loan'])
+
+    # 构建 ranking_items
+    for customer in customers:
+        if customer.id in customer_agg:
+            agg = customer_agg[customer.id]
+            ranking_items.append(WinLossItem(
+                customer_id=customer.id,
+                customer_name=customer.name,
+                customer_phone=customer.phone,
+                total_loan=agg['loan'],
+                total_repayment=agg['repay'],
+                net_win_loss=agg['win_loss'],
+                session_count=len(agg['sessions'])
+            ))
+
+    # 4. 排序：按净输赢降序（赢钱多的在前）
+    ranking_items.sort(key=lambda x: x.net_win_loss, reverse=True)
+    
+    # 5. 计算汇总
+    total_win = sum(item.net_win_loss for item in ranking_items if item.net_win_loss > 0)
+    total_loss = sum(item.net_win_loss for item in ranking_items if item.net_win_loss < 0)
+    
+    return WinLossRankingResponse(
+        start_date=start_date,
+        end_date=end_date,
+        ranking=ranking_items,
+        summary=WinLossSummary(
+            total_win=total_win,
+            total_loss=total_loss, # 这是一个负数
+            total_table_fee=total_table_fee
+        )
+    )
+
 

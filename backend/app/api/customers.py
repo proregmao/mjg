@@ -3,13 +3,15 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from typing import List, Optional
 from datetime import datetime, timezone
 from app.db.database import get_db
 from app.models.customer import Customer
+from app.models.room_customer import RoomCustomer
 from app.models.customer_loan import CustomerLoan
 from app.models.customer_repayment import CustomerRepayment
+from app.models.session_result import SessionResult
 from app.models.transfer import Transfer
 from app.schemas.customer import (
     CustomerCreate, CustomerUpdate, CustomerResponse, CustomerTransfer, CustomerBatchDelete
@@ -44,6 +46,13 @@ def get_customers(
         )
     
     customers = query.offset(skip).limit(limit).all()
+    # 填充参与场次
+    # 填充参与场次 (Sync with Win/Loss Ranking logic)
+    for c in customers:
+        q_loan = db.query(CustomerLoan.session_id).filter(CustomerLoan.customer_id == c.id)
+        q_repay = db.query(CustomerRepayment.session_id).filter(CustomerRepayment.customer_id == c.id)
+        q_result = db.query(SessionResult.session_id).filter(SessionResult.customer_id == c.id)
+        c.session_count = q_loan.union(q_repay).union(q_result).distinct().count()
     return customers
 
 

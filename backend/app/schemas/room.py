@@ -139,6 +139,29 @@ class UpdateMealRecordRequest(BaseModel):
     amount: Decimal = Field(..., gt=0, description="餐费金额")
 
 
+class UpdateLoanRequest(BaseModel):
+    """更新借款记录请求"""
+    amount: Decimal = Field(..., gt=0, description="借款金额")
+    payment_method: Optional[str] = Field(None, description="支付方式")
+
+
+class UpdateRepaymentRequest(BaseModel):
+    """更新还款记录请求"""
+    amount: Decimal = Field(..., ne=0, description="还款金额")
+    payment_method: Optional[str] = Field(None, description="支付方式")
+
+
+class CustomerResultItem(BaseModel):
+    """客户输赢结果项"""
+    customer_id: int
+    net_win_loss: Decimal = Field(..., description="净输赢金额（正盈负亏）")
+
+
+class SettleSessionRequest(BaseModel):
+    """结算会话请求"""
+    customer_results: Optional[List[CustomerResultItem]] = Field(None, description="客户输赢结果列表")
+
+
 
 
 

@@ -17,7 +17,7 @@ class MealRecord(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, comment="餐费商品ID")
     amount = Column(Numeric(10, 2), nullable=False, comment="餐费金额")
     cost_price = Column(Numeric(10, 2), nullable=False, comment="成本价")
-    payment_method = Column(String(20), default="现金", comment="支付方式：现金、微信、支付宝、转账")
+    payment_method = Column(String(100), default="现金", comment="支付方式：现金、微信、支付宝、转账")
     description = Column(String(255), comment="餐费说明")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="创建时间")
 

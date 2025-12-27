@@ -48,6 +48,7 @@ class CustomerResponse(CustomerBase):
     is_deleted: Optional[int] = Field(0, description="是否已删除")
     deleted_at: Optional[datetime] = Field(None, description="删除时间")
     created_at: datetime
+    session_count: Optional[int] = Field(0, description="参与场次")
     updated_at: datetime
 
     class Config:
